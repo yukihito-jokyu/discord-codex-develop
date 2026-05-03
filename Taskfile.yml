@@ -61,3 +61,86 @@ tasks:
     desc: View Docker container logs
     cmds:
       - docker compose logs -f
+
+  start:
+    desc: Build and start the bot (development)
+    cmds:
+      - bash scripts/start-bot.sh --dev
+
+  stop:
+    desc: Stop the bot
+    cmds:
+      - kill "$(cat run/bot.pid)" 2>/dev/null || true
+      - pkill -f 'node dist/index.js' 2>/dev/null || true
+      - rm -f run/bot.pid
+
+  restart:
+    desc: Restart the bot
+    cmds:
+      - task: stop
+      - task: start
+
+  redis:start:
+    desc: Start Redis (development)
+    cmds:
+      - bash scripts/start-redis.sh --dev
+
+  redis:stop:
+    desc: Stop Redis
+    cmds:
+      - kill "$(cat run/redis.pid)" 2>/dev/null || true
+      - pkill -f 'redis-server' 2>/dev/null || true
+      - rm -f run/redis.pid
+
+  tunnel:start:
+    desc: Start Cloudflared tunnel (development)
+    cmds:
+      - bash scripts/start-cloudflared.sh --dev
+
+  tunnel:stop:
+    desc: Stop Cloudflared tunnel
+    cmds:
+      - kill "$(cat run/cloudflared.pid)" 2>/dev/null || true
+      - pkill -f 'cloudflared' 2>/dev/null || true
+      - rm -f run/cloudflared.pid
+
+  services:up:
+    desc: Start all services (development)
+    cmds:
+      - task: redis:start
+      - task: tunnel:start
+      - task: start
+
+  services:down:
+    desc: Stop all services
+    cmds:
+      - task: stop
+      - task: tunnel:stop
+      - task: redis:stop
+
+  logs:
+    desc: Tail all service logs
+    cmds:
+      - tail -f logs/bot.log logs/redis.log logs/cloudflared.log
+
+  logs:bot:
+    desc: Tail bot logs
+    cmds:
+      - tail -f logs/bot.log
+
+  services:install:
+    desc: Install launchd plists (production)
+    cmds:
+      - mkdir -p ~/Library/LaunchAgents
+      - for f in scripts/com.discord-codex-*.plist; do sed "s|__PROJECT_ROOT__|$(pwd)|g" "$f" > ~/Library/LaunchAgents/"$(basename "$f")"; done
+      - launchctl load ~/Library/LaunchAgents/com.discord-codex-bot.plist
+      - launchctl load ~/Library/LaunchAgents/com.discord-codex-redis.plist
+      - launchctl load ~/Library/LaunchAgents/com.discord-codex-cloudflared.plist
+
+  services:uninstall:
+    desc: Uninstall launchd services (production)
+    cmds:
+      - launchctl unload ~/Library/LaunchAgents/com.discord-codex-bot.plist 2>/dev/null || true
+      - launchctl unload ~/Library/LaunchAgents/com.discord-codex-redis.plist 2>/dev/null || true
+      - launchctl unload ~/Library/LaunchAgents/com.discord-codex-cloudflared.plist 2>/dev/null || true
+      - rm -f ~/Library/LaunchAgents/com.discord-codex-*.plist
