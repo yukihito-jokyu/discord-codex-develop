@@ -15,6 +15,11 @@ dist/
 
 # Logs
 *.log
+logs/
+
+# Runtime
+run/
+dump.rdb
 
 # OS
 .DS_Store
