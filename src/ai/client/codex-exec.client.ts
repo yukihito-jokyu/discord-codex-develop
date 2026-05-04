@@ -1,4 +1,4 @@
-import { Codex, type Usage, type ThreadOptions } from "@openai/codex-sdk";
+import { Codex, type ThreadOptions, type Usage } from "@openai/codex-sdk";
 import { ExternalServiceError } from "@/shared/types/errors";
 
 const DEFAULT_TIMEOUT_MS = 600_000;

@@ -138,6 +138,53 @@ https://your-tunnel-domain.com/api/webhooks/discord
 | `TUNNEL_TOKEN` | Cloudflare Tunnelトークン（ローカル開発時） | - |
 | `REDIS_URL` | Redis接続URL（デフォルト: `redis://localhost:6379`） | - |
 
+## 起動方法
+
+### 開発（Taskfile）
+
+```bash
+# 全サービス起動（Redis + Cloudflared + Bot）
+task services:up
+
+# 全サービス停止
+task services:down
+
+# 個別起動
+task start          # Bot（ビルド付き）
+task redis:start    # Redis
+task tunnel:start   # Cloudflared
+
+# 個別停止
+task stop
+task redis:stop
+task tunnel:stop
+
+# ログ確認
+task logs           # 全サービス
+task logs:bot       # Botのみ
+```
+
+### 本番（launchd）
+
+```bash
+# サービスのインストール（自動起動有効）
+task services:install
+
+# サービスのアンインストール
+task services:uninstall
+
+# ステータス確認
+launchctl list | grep com.discord-codex
+```
+
+### Docker
+
+```bash
+task docker:up      # コンテナ起動
+task docker:down    # コンテナ停止
+task docker:logs    # ログ確認
+```
+
 ## PR Agent
 
 PRのコメント欄で以下のコマンドを入力すると、AIが自動で処理します。
