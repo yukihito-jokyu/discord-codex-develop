@@ -61,15 +61,15 @@ describe("botConfigSchema valid", () => {
     expect(result.bot.maxTokens).toBe(0);
   });
 
-  it("accepts timeoutMs of 0", () => {
-    const result = botConfigSchema.parse({
-      bot: { defaultModel: "model", maxTokens: 4096, timeoutMs: 0 },
-      server: { port: 3000 },
-      github,
-      workspace,
-    });
-
-    expect(result.bot.timeoutMs).toBe(0);
+  it("rejects timeoutMs of 0", () => {
+    expect(() =>
+      botConfigSchema.parse({
+        bot: { defaultModel: "model", maxTokens: 4096, timeoutMs: 0 },
+        server: { port: 3000 },
+        github,
+        workspace,
+      }),
+    ).toThrow();
   });
 });
 
@@ -512,6 +512,22 @@ describe("botConfigSchema develop invalid", () => {
         github,
         workspace,
         develop: { codexModel: "codex-mini", timeoutMs: -1 },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects timeoutMs of 0", () => {
+    expect(() =>
+      botConfigSchema.parse({
+        bot: {
+          defaultModel: "codex-mini",
+          maxTokens: 4096,
+          timeoutMs: 30000,
+        },
+        server: { port: 3000 },
+        github,
+        workspace,
+        develop: { codexModel: "codex-mini", timeoutMs: 0 },
       }),
     ).toThrow();
   });
