@@ -165,11 +165,21 @@ export class RedisClient {
         },
         "planOutput exceeds 10KB, truncating",
       );
-      let truncated = normalized.planOutput;
-      while (Buffer.byteLength(truncated, "utf-8") > PLAN_OUTPUT_MAX_BYTES) {
-        truncated = truncated.slice(0, -1);
+      const truncated = normalized.planOutput;
+      let lo = 0;
+      let hi = truncated.length;
+      while (lo < hi) {
+        const mid = Math.floor((lo + hi + 1) / 2);
+        if (
+          Buffer.byteLength(truncated.slice(0, mid), "utf-8") >
+          PLAN_OUTPUT_MAX_BYTES
+        ) {
+          hi = mid - 1;
+        } else {
+          lo = mid;
+        }
       }
-      normalized.planOutput = truncated;
+      normalized.planOutput = truncated.slice(0, lo);
     }
 
     if (this.client && this.connected) {
@@ -186,6 +196,7 @@ export class RedisClient {
           lastError: normalized.lastError ?? "",
           planOutput: normalized.planOutput ?? "",
         });
+        await this.client.expire(key, THREAD_SESSION_TTL_S);
         return;
       } catch {
         getLogger().debug(
