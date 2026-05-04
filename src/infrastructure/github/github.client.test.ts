@@ -301,7 +301,7 @@ describe("GitHubClient createPullRequest success", () => {
         "POST",
         "--field",
         "title=Fix bug",
-        "--field",
+        "--raw-field",
         "body=PR description",
         "--field",
         "head=fix-branch",
