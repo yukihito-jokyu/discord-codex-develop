@@ -59,7 +59,6 @@ describe("SummaryCommand properties", () => {
       createMockDiscordClient(),
     );
     expect(command.definition).toEqual({
-      // biome-ignore lint/security/noSecrets: static Japanese UI text, not a secret
       description: "フォーラム投稿のリンクを要約",
     });
   });
@@ -92,7 +91,6 @@ describe("SummaryCommand no message", () => {
 
     expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "token-1",
-      // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
       expect.stringContaining("メッセージの取得に失敗"),
     );
   });
@@ -161,7 +159,6 @@ describe("SummaryCommand service error", () => {
 
     expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "token-1",
-      // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
       expect.stringContaining("要約の生成に失敗"),
     );
   });

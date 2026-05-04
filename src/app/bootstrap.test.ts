@@ -21,7 +21,14 @@ const mockRedisDisconnect = vi.fn().mockResolvedValue(undefined);
 const mockRedisConnect = vi.fn().mockResolvedValue(undefined);
 const mockRegisterGuildCommands = vi.fn().mockResolvedValue(undefined);
 
-// biome-ignore lint/complexity/noExcessiveLinesPerFunction: mock setup with many vi.doMock calls
+const defaultConfig = {
+  bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
+  server: { port: 3000 },
+  logging: { level: "info" },
+  github: { owner: "test-owner", repo: "test-repo" },
+  workspace: { root: "/tmp/workspace" },
+};
+
 function setupMocks(
   config: Record<string, unknown>,
   envOverrides?: Record<string, unknown>,
@@ -101,6 +108,94 @@ function setupMocks(
       return {};
     }),
   }));
+  vi.doMock("@/infrastructure/github/github.client", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    GitHubClient: vi.fn().mockImplementation(function () {
+      return {};
+    }),
+  }));
+  vi.doMock("@/infrastructure/workspace/workspace.manager", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    WorkspaceManager: vi.fn().mockImplementation(function () {
+      return {};
+    }),
+  }));
+  vi.doMock("@/ai/client/codex-exec.client", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    CodexExecClient: vi.fn().mockImplementation(function () {
+      return {};
+    }),
+  }));
+  vi.doMock("@/bot/commands/develop/init.command", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    InitCommand: vi.fn().mockImplementation(function () {
+      return {
+        name: "init",
+        definition: { description: "Init" },
+        execute: vi.fn(),
+      };
+    }),
+  }));
+  vi.doMock("@/bot/commands/develop/plan.command", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    PlanCommand: vi.fn().mockImplementation(function () {
+      return {
+        name: "plan",
+        definition: { description: "Plan" },
+        execute: vi.fn(),
+      };
+    }),
+  }));
+  vi.doMock("@/bot/commands/develop/develop.command", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    DevelopCommand: vi.fn().mockImplementation(function () {
+      return {
+        name: "develop",
+        definition: { description: "Develop" },
+        execute: vi.fn(),
+      };
+    }),
+  }));
+  vi.doMock("@/bot/commands/develop/test.command", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    TestCommand: vi.fn().mockImplementation(function () {
+      return {
+        name: "test",
+        definition: { description: "Test" },
+        execute: vi.fn(),
+      };
+    }),
+  }));
+  vi.doMock("@/bot/commands/develop/commit.command", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    CommitCommand: vi.fn().mockImplementation(function () {
+      return {
+        name: "commit",
+        definition: { description: "Commit" },
+        execute: vi.fn(),
+      };
+    }),
+  }));
+  vi.doMock("@/bot/commands/develop/pr.command", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    PrCommand: vi.fn().mockImplementation(function () {
+      return {
+        name: "pr",
+        definition: { description: "PR" },
+        execute: vi.fn(),
+      };
+    }),
+  }));
+  vi.doMock("@/bot/commands/develop/reset.command", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    ResetCommand: vi.fn().mockImplementation(function () {
+      return {
+        name: "reset",
+        definition: { description: "Reset" },
+        execute: vi.fn(),
+      };
+    }),
+  }));
 }
 
 describe("bootstrap result", () => {
@@ -112,11 +207,7 @@ describe("bootstrap result", () => {
   });
 
   it("returns app with fetch method and port from config", async () => {
-    setupMocks({
-      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-      server: { port: 3000 },
-      logging: { level: "info" },
-    });
+    setupMocks(defaultConfig);
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -127,11 +218,7 @@ describe("bootstrap result", () => {
   });
 
   it("passes interactionHandler to createApp", async () => {
-    setupMocks({
-      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-      server: { port: 3000 },
-      logging: { level: "info" },
-    });
+    setupMocks(defaultConfig);
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -154,11 +241,7 @@ describe("bootstrap shutdown", () => {
   });
 
   it("returns shutdown function", async () => {
-    setupMocks({
-      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-      server: { port: 3000 },
-      logging: { level: "info" },
-    });
+    setupMocks(defaultConfig);
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -168,11 +251,7 @@ describe("bootstrap shutdown", () => {
   });
 
   it("shutdown disconnects Redis and stops Gateway", async () => {
-    setupMocks({
-      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-      server: { port: 3000 },
-      logging: { level: "info" },
-    });
+    setupMocks(defaultConfig);
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -184,11 +263,7 @@ describe("bootstrap shutdown", () => {
   });
 
   it("shutdown always stops Gateway", async () => {
-    setupMocks({
-      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-      server: { port: 3000 },
-      logging: { level: "info" },
-    });
+    setupMocks(defaultConfig);
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -211,11 +286,7 @@ describe("bootstrap logging", () => {
 
   it("calls createLogger with logging config", async () => {
     const loggingConfig = { level: "debug" };
-    setupMocks({
-      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-      server: { port: 3000 },
-      logging: loggingConfig,
-    });
+    setupMocks({ ...defaultConfig, logging: loggingConfig });
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -229,6 +300,8 @@ describe("bootstrap logging", () => {
       bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
       server: { port: 3000 },
       logging: { level: "info" },
+      github: { owner: "test-owner", repo: "test-repo" },
+      workspace: { root: "/tmp/workspace" },
     };
     setupMocks(config);
 
@@ -263,14 +336,10 @@ describe("bootstrap error", () => {
   });
 
   it("throws when OPENAI_API_KEY and CODEX_API_KEY are not set", async () => {
-    setupMocks(
-      {
-        bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-        server: { port: 3000 },
-        logging: { level: "info" },
-      },
-      { OPENAI_API_KEY: undefined, CODEX_API_KEY: undefined },
-    );
+    setupMocks(defaultConfig, {
+      OPENAI_API_KEY: undefined,
+      CODEX_API_KEY: undefined,
+    });
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -289,14 +358,10 @@ describe("bootstrap API key selection", () => {
   });
 
   it("prefers CODEX_API_KEY over OPENAI_API_KEY", async () => {
-    setupMocks(
-      {
-        bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-        server: { port: 3000 },
-        logging: { level: "info" },
-      },
-      { CODEX_API_KEY: "codex-key", OPENAI_API_KEY: "openai-key" },
-    );
+    setupMocks(defaultConfig, {
+      CODEX_API_KEY: "codex-key",
+      OPENAI_API_KEY: "openai-key",
+    });
 
     const { OpenAIClient } = await import("@/ai/client/openai.client");
     const { bootstrap } = await import("@/app/bootstrap");
@@ -310,14 +375,10 @@ describe("bootstrap API key selection", () => {
   });
 
   it("falls back to OPENAI_API_KEY when CODEX_API_KEY is not set", async () => {
-    setupMocks(
-      {
-        bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-        server: { port: 3000 },
-        logging: { level: "info" },
-      },
-      { CODEX_API_KEY: undefined, OPENAI_API_KEY: "openai-key" },
-    );
+    setupMocks(defaultConfig, {
+      CODEX_API_KEY: undefined,
+      OPENAI_API_KEY: "openai-key",
+    });
 
     const { OpenAIClient } = await import("@/ai/client/openai.client");
     const { bootstrap } = await import("@/app/bootstrap");
@@ -340,17 +401,10 @@ describe("bootstrap OpenAIClient options", () => {
   });
 
   it("passes CODEX_BASE_URL and CODEX_MODEL to OpenAIClient", async () => {
-    setupMocks(
-      {
-        bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-        server: { port: 3000 },
-        logging: { level: "info" },
-      },
-      {
-        CODEX_BASE_URL: "https://custom.api",
-        CODEX_MODEL: "custom-model",
-      },
-    );
+    setupMocks(defaultConfig, {
+      CODEX_BASE_URL: "https://custom.api",
+      CODEX_MODEL: "custom-model",
+    });
 
     const { OpenAIClient } = await import("@/ai/client/openai.client");
     const { bootstrap } = await import("@/app/bootstrap");
@@ -377,14 +431,7 @@ describe("bootstrap guild command registration", () => {
   });
 
   it("calls registerGuildCommands when DISCORD_GUILD_ID is set", async () => {
-    setupMocks(
-      {
-        bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-        server: { port: 3000 },
-        logging: { level: "info" },
-      },
-      { DISCORD_GUILD_ID: "guild-123" },
-    );
+    setupMocks(defaultConfig, { DISCORD_GUILD_ID: "guild-123" });
 
     const { bootstrap } = await import("@/app/bootstrap");
 
@@ -401,14 +448,7 @@ describe("bootstrap guild command registration", () => {
   });
 
   it("does not call registerGuildCommands when DISCORD_GUILD_ID is not set", async () => {
-    setupMocks(
-      {
-        bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
-        server: { port: 3000 },
-        logging: { level: "info" },
-      },
-      { DISCORD_GUILD_ID: undefined },
-    );
+    setupMocks(defaultConfig, { DISCORD_GUILD_ID: undefined });
 
     const { bootstrap } = await import("@/app/bootstrap");
 

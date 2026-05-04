@@ -268,7 +268,6 @@ describe("MessageHandler errors", () => {
     );
     expect(mockSendMessage).toHaveBeenCalledWith(
       "ch-1",
-      // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
       "エラーが発生しました。しばらくしてからお試しください。",
     );
   });

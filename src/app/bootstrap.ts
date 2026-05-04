@@ -1,31 +1,45 @@
 import { createDiscordAdapter } from "@chat-adapter/discord";
+import { CodexExecClient } from "@/ai/client/codex-exec.client";
 import { OpenAIClient } from "@/ai/client/openai.client";
 import { AIService } from "@/ai/services/ai.service";
 import { SummaryService } from "@/ai/services/summary.service";
-import { loadConfig } from "@/app/config/bot.config";
+import { type BotConfig, loadConfig } from "@/app/config/bot.config";
 import { env } from "@/app/config/env";
 import { ChatCommand } from "@/bot/commands/ai/chat.command";
 import { SummaryCommand } from "@/bot/commands/ai/summary.command";
+import type { Command } from "@/bot/commands/command.interface";
+import { CommitCommand } from "@/bot/commands/develop/commit.command";
+import { DevelopCommand } from "@/bot/commands/develop/develop.command";
+import { InitCommand } from "@/bot/commands/develop/init.command";
+import { PlanCommand } from "@/bot/commands/develop/plan.command";
+import { PrCommand } from "@/bot/commands/develop/pr.command";
+import { ResetCommand } from "@/bot/commands/develop/reset.command";
+import { TestCommand } from "@/bot/commands/develop/test.command";
 import { PingCommand } from "@/bot/commands/utility/ping.command";
 import { InteractionHandler } from "@/bot/handlers/interaction.handler";
 import { MessageHandler } from "@/bot/handlers/message.handler";
 import { Router } from "@/bot/router";
+import { GitHubClient } from "@/infrastructure/github/github.client";
 import { RedisClient } from "@/infrastructure/redis/redis.client";
 import { WebFetcherClient } from "@/infrastructure/web/web-fetcher.client";
+import { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
 import { DiscordClient } from "@/sdk/discord/discord.client";
 import { DiscordGateway } from "@/server/gateway/discord.gateway";
 import { createApp } from "@/server/hono";
 import { createLogger, getLogger } from "@/shared/utils/logger";
+
+function getCodexApiKey(): string {
+  const key = env.CODEX_API_KEY ?? env.OPENAI_API_KEY;
+  if (!key) throw new Error("CODEX_API_KEY or OPENAI_API_KEY is required");
+  return key;
+}
 
 function createAIService(): {
   aiService: AIService;
   redis: RedisClient;
   openai: OpenAIClient;
 } {
-  const codexApiKey = env.CODEX_API_KEY ?? env.OPENAI_API_KEY;
-  if (!codexApiKey) {
-    throw new Error("CODEX_API_KEY or OPENAI_API_KEY is required");
-  }
+  const codexApiKey = getCodexApiKey();
   const openai = new OpenAIClient(codexApiKey, {
     baseUrl: env.CODEX_BASE_URL,
     model: env.CODEX_MODEL,
@@ -38,21 +52,88 @@ function createAIService(): {
   return { aiService: new AIService(openai, redis), redis, openai };
 }
 
-function createDiscordDeps(aiService: AIService, openai: OpenAIClient) {
+function createDevelopCommands(
+  redis: RedisClient,
+  config: BotConfig,
+  discordClient: DiscordClient,
+): Command[] {
+  const codexApiKey = getCodexApiKey();
+  const githubOwner = config.github.owner;
+  const githubRepo = config.github.repo;
+  const github = new GitHubClient();
+  const workspace = new WorkspaceManager(config.workspace.root);
+  const codexExec = new CodexExecClient(codexApiKey, {
+    baseUrl: env.CODEX_BASE_URL,
+    model: env.CODEX_MODEL,
+  });
+
+  return [
+    new InitCommand({
+      redis,
+      github,
+      workspace,
+      discordClient,
+      githubOwner,
+      githubRepo,
+    }),
+    new PlanCommand({
+      redis,
+      codexExec,
+      github,
+      discordClient,
+      githubOwner,
+      githubRepo,
+    }),
+    new DevelopCommand({ redis, codexExec, workspace, discordClient }),
+    new TestCommand({ redis, codexExec, workspace, discordClient }),
+    new CommitCommand({
+      redis,
+      codexExec,
+      workspace,
+      github,
+      discordClient,
+      githubOwner,
+      githubRepo,
+    }),
+    new PrCommand({
+      redis,
+      codexExec,
+      github,
+      workspace,
+      discordClient,
+      githubOwner,
+      githubRepo,
+    }),
+    new ResetCommand({ redis, workspace, discordClient }),
+  ];
+}
+
+function createDiscordDeps(
+  aiService: AIService,
+  openai: OpenAIClient,
+  redis: RedisClient,
+  config: BotConfig,
+) {
   const botToken = env.DISCORD_BOT_TOKEN;
   const applicationId = env.DISCORD_APPLICATION_ID;
   if (!botToken) throw new Error("DISCORD_BOT_TOKEN is required");
   if (!applicationId) throw new Error("DISCORD_APPLICATION_ID is required");
 
-  const adapter = createDiscordAdapter({
-    botToken,
-    applicationId,
-  });
+  const adapter = createDiscordAdapter({ botToken, applicationId });
   const discordClient = new DiscordClient(adapter, botToken, applicationId);
+
   const chatCommand = new ChatCommand(aiService, discordClient);
   const summaryService = new SummaryService(openai, new WebFetcherClient());
   const summaryCommand = new SummaryCommand(summaryService, discordClient);
-  const commands = [new PingCommand(), chatCommand, summaryCommand];
+  const developCommands = createDevelopCommands(redis, config, discordClient);
+
+  const commands: Command[] = [
+    new PingCommand(),
+    chatCommand,
+    summaryCommand,
+    ...developCommands,
+  ];
+
   const messageHandler = new MessageHandler(
     aiService,
     discordClient,
@@ -95,7 +176,7 @@ export function bootstrap() {
     interactionHandler,
     messageHandler,
     discordClient,
-  } = createDiscordDeps(aiService, openai);
+  } = createDiscordDeps(aiService, openai, redis, config);
 
   const app = createApp({
     interactionHandler,

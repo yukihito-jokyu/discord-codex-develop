@@ -71,7 +71,6 @@ describe("ChatCommand properties", () => {
       options: [
         {
           name: "message",
-          // biome-ignore lint/security/noSecrets: static Japanese UI text, not a secret
           description: "AIに送信するメッセージ",
           type: 3,
           required: true,
@@ -229,7 +228,6 @@ describe("ChatCommand error in thread", () => {
 
     expect(discordClient.sendMessage).toHaveBeenCalledWith(
       "thread-999",
-      // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
       "エラーが発生しました。しばらくしてからお試しください。",
     );
   });

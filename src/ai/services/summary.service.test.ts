@@ -42,8 +42,7 @@ describe("SummaryService", () => {
     vi.restoreAllMocks();
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "URL一覧を渡して要約結果を返す", async () => {
+  it("URL一覧を渡して要約結果を返す", async () => {
     const client = createMockOpenAIClient("AI summary");
     const fetcher = createMockWebFetcher(
       new Map([["https://example.com", "page content"]]),
@@ -71,8 +70,7 @@ describe("SummaryService", () => {
     ]);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "全URL取得失敗時はerrを返す", async () => {
+  it("全URL取得失敗時はerrを返す", async () => {
     const client = createMockOpenAIClient("response");
     const fetcher = createMockWebFetcher(new Map());
     const service = new SummaryService(client, fetcher);
@@ -81,8 +79,7 @@ describe("SummaryService", () => {
     expect(result.ok).toBe(false);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "OpenAIエラー時はerrを返す", async () => {
+  it("OpenAIエラー時はerrを返す", async () => {
     const client = {
       chat: vi.fn().mockRejectedValue(new Error("API error")),
     } as unknown as OpenAIClient;

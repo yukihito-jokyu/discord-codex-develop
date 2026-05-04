@@ -5,7 +5,6 @@ import {
   isPositiveInt,
 } from "@/shared/utils/validation";
 
-// biome-ignore lint/security/noSecrets: function name "isNonEmptyString" is not a secret
 describe("isNonEmptyString", () => {
   it("returns true for a normal string", () => {
     expect(isNonEmptyString("hello")).toBe(true);

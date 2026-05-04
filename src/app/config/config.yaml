@@ -13,3 +13,10 @@ logging:
 
 redis:
   url: "redis://localhost:6379"
+
+github:
+  owner: "yukihito-jokyu"
+  repo: "discord-codex-develop"
+
+workspace:
+  root: "/tmp/codex-workspace"

@@ -32,6 +32,13 @@ export const botConfigSchema = z.object({
       url: z.string().min(1),
     })
     .optional(),
+  github: z.object({
+    owner: z.string().min(1),
+    repo: z.string().min(1),
+  }),
+  workspace: z.object({
+    root: z.string().min(1),
+  }),
 });
 
 export type BotConfig = z.infer<typeof botConfigSchema>;

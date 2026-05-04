@@ -168,7 +168,6 @@ describe("MessageFormatter.formatPhaseStatus", () => {
   it("includes issue number and title", () => {
     const issueInfo = createIssueInfo({ number: 99, title: "New Feature" });
     const result = MessageFormatter.formatPhaseStatus("init", issueInfo);
-    // biome-ignore lint/security/noSecrets: static Japanese UI text, not a secret
     expect(result).toBe("Issue #99: New Feature の開発を開始します");
   });
 });
@@ -181,7 +180,6 @@ describe("MessageFormatter.formatError", () => {
 
   it("includes reset guidance", () => {
     const result = MessageFormatter.formatError("Error", "planned");
-    // biome-ignore lint/security/noSecrets: static Japanese UI text, not a secret
     expect(result).toContain("/resetでやり直せます");
   });
 
@@ -236,7 +234,6 @@ describe("MessageFormatter.formatPhaseResult", () => {
 
   it("includes next step for non-completed phases", () => {
     const result = MessageFormatter.formatPhaseResult("init", "done");
-    // biome-ignore lint/security/noSecrets: static Japanese UI text, not a secret
     expect(result.some((r) => r.includes("計画を作成します..."))).toBe(true);
   });
 
@@ -255,11 +252,8 @@ describe("MessageFormatter.formatPhaseResult", () => {
   });
 
   it.each([
-    // biome-ignore lint/security/noSecrets: false positive on Japanese test strings
     ["planned", "開発を開始します..."],
-    // biome-ignore lint/security/noSecrets: false positive on Japanese test strings
     ["developed", "テストを実行します..."],
-    // biome-ignore lint/security/noSecrets: false positive on Japanese test strings
     ["tested", "コミットを作成します..."],
   ] as [
     Phase,
