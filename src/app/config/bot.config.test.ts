@@ -5,6 +5,9 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(),
 }));
 
+const github = { owner: "test-owner", repo: "test-repo" };
+const workspace = { root: "/tmp/workspace" };
+
 const validYaml = `
 bot:
   defaultModel: "codex-mini"
@@ -12,6 +15,11 @@ bot:
   timeoutMs: 30000
 server:
   port: 3000
+github:
+  owner: "test-owner"
+  repo: "test-repo"
+workspace:
+  root: "/tmp/workspace"
 redis:
   url: "redis://localhost:6379"
 `;
@@ -25,6 +33,8 @@ describe("botConfigSchema valid", () => {
         timeoutMs: 30000,
       },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result).toEqual({
@@ -34,6 +44,8 @@ describe("botConfigSchema valid", () => {
         timeoutMs: 30000,
       },
       server: { port: 3000 },
+      github,
+      workspace,
     });
   });
 
@@ -41,6 +53,8 @@ describe("botConfigSchema valid", () => {
     const result = botConfigSchema.parse({
       bot: { defaultModel: "model", maxTokens: 0, timeoutMs: 30000 },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result.bot.maxTokens).toBe(0);
@@ -50,6 +64,8 @@ describe("botConfigSchema valid", () => {
     const result = botConfigSchema.parse({
       bot: { defaultModel: "model", maxTokens: 4096, timeoutMs: 0 },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result.bot.timeoutMs).toBe(0);
@@ -66,6 +82,8 @@ describe("botConfigSchema allowedUsers", () => {
         allowedUsers: ["user-1", "user-2"],
       },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result.bot.allowedUsers).toEqual(["user-1", "user-2"]);
@@ -75,6 +93,8 @@ describe("botConfigSchema allowedUsers", () => {
     const result = botConfigSchema.parse({
       bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result.bot.allowedUsers).toBeUndefined();
@@ -89,6 +109,8 @@ describe("botConfigSchema allowedUsers", () => {
         allowedUsers: [],
       },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result.bot.allowedUsers).toEqual([]);
@@ -104,6 +126,8 @@ describe("botConfigSchema allowedUsers", () => {
           allowedUsers: "not-an-array",
         },
         server: { port: 3000 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -118,6 +142,8 @@ describe("botConfigSchema allowedUsers", () => {
           allowedUsers: [123],
         },
         server: { port: 3000 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -129,6 +155,8 @@ describe("botConfigSchema invalid bot fields", () => {
       botConfigSchema.parse({
         bot: { maxTokens: 4096, timeoutMs: 30000 },
         server: { port: 3000 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -138,6 +166,8 @@ describe("botConfigSchema invalid bot fields", () => {
       botConfigSchema.parse({
         bot: { defaultModel: "", maxTokens: 4096, timeoutMs: 30000 },
         server: { port: 3000 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -151,6 +181,8 @@ describe("botConfigSchema invalid bot fields", () => {
           timeoutMs: 30000,
         },
         server: { port: 3000 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -160,6 +192,8 @@ describe("botConfigSchema invalid bot fields", () => {
       botConfigSchema.parse({
         bot: { defaultModel: "codex-mini", maxTokens: -1, timeoutMs: 30000 },
         server: { port: 3000 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -175,6 +209,8 @@ describe("botConfigSchema invalid server fields", () => {
           timeoutMs: 30000,
         },
         server: {},
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -184,6 +220,8 @@ describe("botConfigSchema invalid server fields", () => {
       botConfigSchema.parse({
         bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
         server: { port: 0 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -193,6 +231,8 @@ describe("botConfigSchema invalid server fields", () => {
       botConfigSchema.parse({
         bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
         server: { port: -1 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -203,6 +243,8 @@ describe("botConfigSchema logging valid", () => {
     const result = botConfigSchema.parse({
       bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result).not.toHaveProperty("logging");
@@ -225,6 +267,8 @@ describe("botConfigSchema logging valid", () => {
       },
       server: { port: 3000 },
       logging: { level },
+      github,
+      workspace,
     });
 
     expect(result.logging?.level).toBe(level);
@@ -235,6 +279,8 @@ describe("botConfigSchema logging valid", () => {
       bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
       server: { port: 3000 },
       logging: {},
+      github,
+      workspace,
     });
 
     expect(result.logging).toEqual({});
@@ -252,6 +298,8 @@ describe("botConfigSchema logging invalid", () => {
         },
         server: { port: 3000 },
         logging: { level: "verbose" },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -266,6 +314,8 @@ describe("botConfigSchema logging invalid", () => {
         },
         server: { port: 3000 },
         logging: { level: 123 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -276,6 +326,8 @@ describe("botConfigSchema redis valid", () => {
     const result = botConfigSchema.parse({
       bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
       server: { port: 3000 },
+      github,
+      workspace,
     });
 
     expect(result).not.toHaveProperty("redis");
@@ -286,6 +338,8 @@ describe("botConfigSchema redis valid", () => {
       bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
       server: { port: 3000 },
       redis: { url: "redis://localhost:6379" },
+      github,
+      workspace,
     });
 
     expect(result.redis?.url).toBe("redis://localhost:6379");
@@ -299,6 +353,8 @@ describe("botConfigSchema redis invalid", () => {
         bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
         server: { port: 3000 },
         redis: { url: "" },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -309,6 +365,8 @@ describe("botConfigSchema redis invalid", () => {
         bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
         server: { port: 3000 },
         redis: { url: 123 },
+        github,
+        workspace,
       }),
     ).toThrow();
   });
@@ -338,6 +396,8 @@ describe("loadConfig", () => {
         timeoutMs: 30000,
       },
       server: { port: 3000 },
+      github,
+      workspace,
       redis: { url: "redis://localhost:6379" },
     });
   });
