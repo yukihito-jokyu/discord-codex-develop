@@ -126,6 +126,12 @@ function setupMocks(
       return {};
     }),
   }));
+  vi.doMock("@/ai/services/develop.service", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    DevelopService: vi.fn().mockImplementation(function () {
+      return {};
+    }),
+  }));
   vi.doMock("@/bot/commands/develop/init.command", () => ({
     // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
     InitCommand: vi.fn().mockImplementation(function () {
