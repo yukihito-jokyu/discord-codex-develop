@@ -20,9 +20,8 @@ cd "$PROJECT_ROOT"
 
 if [ "$DEV_MODE" = true ]; then
   mkdir -p "$PROJECT_ROOT/run"
-  nohup nix develop --command redis-server > logs/redis.log 2>&1 &
-  echo $! > "$PROJECT_ROOT/run/redis.pid"
-  echo "Redis started with PID $(cat "$PROJECT_ROOT/run/redis.pid")"
+  nohup nix develop --command redis-server --pidfile "$PROJECT_ROOT/run/redis.pid" > logs/redis.log 2>&1 &
+  echo "Redis starting (PID file: $PROJECT_ROOT/run/redis.pid)"
 else
   nix develop --command redis-server
 fi
