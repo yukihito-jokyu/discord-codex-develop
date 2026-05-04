@@ -18,6 +18,20 @@ export function truncateToBytes(
   const noticeBytes = Buffer.byteLength(notice, "utf-8");
   const safeLimit = maxBytes - noticeBytes;
 
+  if (safeLimit < 0) {
+    let lo = 0;
+    let hi = notice.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (Buffer.byteLength(notice.slice(0, mid), "utf-8") <= maxBytes) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return { text: notice.slice(0, lo), wasTruncated: true };
+  }
+
   let low = 0;
   let high = text.length;
   while (low < high) {
