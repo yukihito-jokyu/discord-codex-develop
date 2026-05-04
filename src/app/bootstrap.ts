@@ -60,7 +60,7 @@ function createDevelopService(
   const codexApiKey = getCodexApiKey();
   const codexExec = new CodexExecClient(codexApiKey, {
     baseUrl: env.CODEX_BASE_URL,
-    model: env.CODEX_MODEL,
+    model: config.develop.codexModel,
   });
   const github = new GitHubClient();
   const workspace = new WorkspaceManager(config.workspace.root);

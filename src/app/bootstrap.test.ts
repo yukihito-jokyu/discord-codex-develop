@@ -27,6 +27,7 @@ const defaultConfig = {
   logging: { level: "info" },
   github: { owner: "test-owner", repo: "test-repo" },
   workspace: { root: "/tmp/workspace" },
+  develop: { codexModel: "codex-mini", timeoutMs: 600000 },
 };
 
 function setupMocks(
@@ -308,6 +309,7 @@ describe("bootstrap logging", () => {
       logging: { level: "info" },
       github: { owner: "test-owner", repo: "test-repo" },
       workspace: { root: "/tmp/workspace" },
+      develop: { codexModel: "codex-mini", timeoutMs: 600000 },
     };
     setupMocks(config);
 
