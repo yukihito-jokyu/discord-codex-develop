@@ -38,6 +38,7 @@ export class RedisClient {
       this.client.on("error", (err) => {
         getLogger().error({ err: err.message }, "Redis error");
         this.connected = false;
+        this.startFallbackCleanup();
       });
       this.client.on("reconnecting", () => {
         getLogger().warn("Redis reconnecting...");
@@ -358,6 +359,15 @@ export class RedisClient {
     const entry = this.fallbackHash.get(key);
     if (entry) {
       entry.expiresAt = Date.now() + seconds * 1000;
+    }
+    const phases = ["plan", "develop", "test", "commit"];
+    for (const phase of phases) {
+      const codexEntry = this.fallback.get(
+        RedisClient.codexKey(threadId, phase),
+      );
+      if (codexEntry) {
+        codexEntry.expiresAt = Date.now() + seconds * 1000;
+      }
     }
   }
 
