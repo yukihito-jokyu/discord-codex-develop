@@ -27,7 +27,7 @@ cd "$PROJECT_ROOT"
 
 if [ "$DEV_MODE" = true ]; then
   mkdir -p "$PROJECT_ROOT/run"
-  nohup nix develop --command bash -c "pnpm build && pnpm start" > logs/bot.log 2>&1 &
+  nohup nix develop --command bash -c "pnpm build && exec pnpm start" > logs/bot.log 2>&1 &
   echo $! > "$PROJECT_ROOT/run/bot.pid"
   echo "Bot started with PID $(cat "$PROJECT_ROOT/run/bot.pid")"
 else
