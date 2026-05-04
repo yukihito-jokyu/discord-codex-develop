@@ -1,6 +1,5 @@
-import type { RedisClient } from "@/infrastructure/redis/redis.client";
+import type { DevelopService } from "@/ai/services/develop.service";
 import type { Phase } from "@/infrastructure/redis/thread-state.types";
-import type { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
 import { deferred, message } from "@/sdk/discord/adapter/response.adapter";
 import type { DiscordClient } from "@/sdk/discord/discord.client";
 import type {
@@ -9,13 +8,6 @@ import type {
 } from "@/sdk/discord/types/domain";
 import { getLogger } from "@/shared/utils/logger";
 import type { Command } from "../command.interface";
-import { validateThreadCommand } from "./validate";
-
-interface ResetCommandDeps {
-  redis: RedisClient;
-  workspace: WorkspaceManager;
-  discordClient: DiscordClient;
-}
 
 const ALL_PHASES: Phase[] = [
   "init",
@@ -33,7 +25,10 @@ export class ResetCommand implements Command {
     description: "ワークスペースの変更を破棄",
   };
 
-  constructor(private readonly deps: ResetCommandDeps) {}
+  constructor(
+    private readonly developService: DevelopService,
+    private readonly discordClient: DiscordClient,
+  ) {}
 
   execute(interaction: DomainInteraction): Promise<DomainResponse> {
     const log = getLogger();
@@ -60,39 +55,51 @@ export class ResetCommand implements Command {
     interaction: DomainInteraction,
     interactionToken: string,
   ): Promise<void> {
-    const log = getLogger();
-    const { redis, workspace, discordClient } = this.deps;
     const channelId = interaction.channelId;
 
-    const vr = await validateThreadCommand({
-      discordClient,
-      redis,
+    const inThread = await this.discordClient.isThreadChannel(channelId);
+    if (!inThread) {
+      await this.discordClient.editInteractionResponse(
+        interactionToken,
+        // biome-ignore lint/security/noSecrets: static Japanese error message, not a secret
+        "このコマンドはスレッド内で実行してください。",
+      );
+      return;
+    }
+
+    const vr = await this.developService.validateThreadCommand({
       channelId,
       userId: interaction.userId,
       expectedPhases: ALL_PHASES,
-      interactionToken,
     });
-    if (!vr) return;
+    if (!vr.ok) {
+      await this.discordClient.editInteractionResponse(
+        interactionToken,
+        vr.error.message,
+      );
+      return;
+    }
 
-    const discardResult = await workspace.discardChanges(
-      vr.state.workspacePath,
+    const discardResult = await this.developService.discardChanges(
+      vr.value.state,
     );
     if (!discardResult.ok) {
-      await discordClient.editInteractionResponse(
+      await this.discordClient.editInteractionResponse(
         interactionToken,
         `変更の破棄に失敗しました: ${discardResult.error.message}`,
       );
       return;
     }
 
-    await discordClient.editInteractionResponse(
+    await this.discordClient.editInteractionResponse(
       interactionToken,
       // biome-ignore lint/security/noSecrets: static Japanese UI text, not a secret
       "ワークスペースの変更を破棄しました。",
     );
 
+    const log = getLogger();
     log.info(
-      { channelId, issueNumber: vr.state.issueNumber },
+      { channelId, issueNumber: vr.value.state.issueNumber },
       "ResetCommand completed",
     );
   }

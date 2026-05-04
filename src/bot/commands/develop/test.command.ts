@@ -1,8 +1,4 @@
-import type { CodexExecClient } from "@/ai/client/codex-exec.client";
-import { buildDevelopTestPrompt } from "@/ai/prompts/templates/develop-test";
-import type { RedisClient } from "@/infrastructure/redis/redis.client";
-import type { ThreadState } from "@/infrastructure/redis/thread-state.types";
-import type { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
+import type { DevelopService } from "@/ai/services/develop.service";
 import { deferred, message } from "@/sdk/discord/adapter/response.adapter";
 import type { DiscordClient } from "@/sdk/discord/discord.client";
 import type {
@@ -12,14 +8,6 @@ import type {
 import { formatForDiscord } from "@/shared/utils/format";
 import { getLogger } from "@/shared/utils/logger";
 import type { Command } from "../command.interface";
-import { executeCodexOrResume, validateThreadCommand } from "./validate";
-
-interface TestCommandDeps {
-  redis: RedisClient;
-  codexExec: CodexExecClient;
-  workspace: WorkspaceManager;
-  discordClient: DiscordClient;
-}
 
 export class TestCommand implements Command {
   readonly name = "test";
@@ -28,7 +16,10 @@ export class TestCommand implements Command {
     description: "実装に対するテストを作成・実行",
   };
 
-  constructor(private readonly deps: TestCommandDeps) {}
+  constructor(
+    private readonly developService: DevelopService,
+    private readonly discordClient: DiscordClient,
+  ) {}
 
   execute(interaction: DomainInteraction): Promise<DomainResponse> {
     const log = getLogger();
@@ -51,98 +42,75 @@ export class TestCommand implements Command {
     return Promise.resolve(deferred());
   }
 
-  private async runCodexTest(
-    state: ThreadState,
-    channelId: string,
-  ): Promise<import("@/ai/client/codex-exec.client").CodexExecResult> {
-    const { redis, codexExec, workspace } = this.deps;
-
-    const diffResult = await workspace.getDiff(state.workspacePath);
-    if (!diffResult.ok) {
-      throw new Error(`diffの取得に失敗しました: ${diffResult.error.message}`);
-    }
-
-    const prompt = buildDevelopTestPrompt({
-      diff: diffResult.value,
-      repo: state.repo,
-      branch: state.branch,
-    });
-
-    return executeCodexOrResume({
-      codexExec,
-      redis,
-      channelId,
-      phase: "test",
-      prompt,
-      cwd: state.workspacePath,
-      sandboxMode: "write",
-    });
-  }
-
-  private async executeTest(
-    state: ThreadState,
-    channelId: string,
-    interactionToken: string,
-  ): Promise<void> {
-    const log = getLogger();
-    const { redis, workspace, discordClient } = this.deps;
-
-    const codexResult = await this.runCodexTest(state, channelId);
-
-    const postDiffResult = await workspace.getDiff(state.workspacePath);
-    const postDiffText = postDiffResult.ok ? postDiffResult.value : "";
-
-    state.subStage = "idle";
-    const casSuccess = await redis.compareAndSwapPhase(
-      channelId,
-      "developed",
-      "tested",
-    );
-    if (!casSuccess) state.currentPhase = "tested";
-
-    await redis.saveThreadState(channelId, state);
-
-    const responseText = postDiffText
-      ? `**テスト作成完了**\n\n\`\`\`diff\n${formatForDiscord(postDiffText)}\n\`\`\``
-      : formatForDiscord(codexResult.response);
-    await discordClient.editInteractionResponse(interactionToken, responseText);
-
-    log.info(
-      { channelId, issueNumber: state.issueNumber },
-      "TestCommand completed",
-    );
-  }
-
   private async processInBackground(
     interaction: DomainInteraction,
     interactionToken: string,
   ): Promise<void> {
-    const log = getLogger();
-    const { redis, discordClient } = this.deps;
     const channelId = interaction.channelId;
 
-    const vr = await validateThreadCommand({
-      discordClient,
-      redis,
+    const inThread = await this.discordClient.isThreadChannel(channelId);
+    if (!inThread) {
+      await this.discordClient.editInteractionResponse(
+        interactionToken,
+        // biome-ignore lint/security/noSecrets: static Japanese error message, not a secret
+        "このコマンドはスレッド内で実行してください。",
+      );
+      return;
+    }
+
+    const vr = await this.developService.validateThreadCommand({
       channelId,
       userId: interaction.userId,
       expectedPhases: ["developed"],
-      interactionToken,
     });
-    if (!vr) return;
+    if (!vr.ok) {
+      await this.discordClient.editInteractionResponse(
+        interactionToken,
+        vr.error.message,
+      );
+      return;
+    }
 
-    const state = vr.state;
-    state.subStage = "running";
-    await redis.saveThreadState(channelId, state);
+    await this.developService.setRunning(channelId, vr.value.state);
+    await this.executeTestPhase(channelId, vr.value.state, interactionToken);
+  }
 
+  private async executeTestPhase(
+    channelId: string,
+    state: import("@/infrastructure/redis/thread-state.types").ThreadState,
+    interactionToken: string,
+  ): Promise<void> {
     try {
-      await this.executeTest(state, channelId, interactionToken);
+      const result = await this.developService.executeTest(channelId, state);
+      if (!result.ok) {
+        await this.developService.setError(
+          channelId,
+          state,
+          result.error.message,
+        );
+        await this.discordClient.editInteractionResponse(
+          interactionToken,
+          result.error.message,
+        );
+        return;
+      }
+
+      const responseText = result.value.diff
+        ? `**テスト作成完了**\n\n\`\`\`diff\n${formatForDiscord(result.value.diff)}\n\`\`\``
+        : formatForDiscord(result.value.response);
+      await this.discordClient.editInteractionResponse(
+        interactionToken,
+        responseText,
+      );
     } catch (err) {
+      const log = getLogger();
       log.error({ err: String(err) }, "TestCommand error");
-      state.subStage = "idle";
-      state.lastError = err instanceof Error ? err.message : String(err);
-      await redis.saveThreadState(channelId, state);
-      await discordClient.editInteractionResponse(
+      await this.developService.setError(
+        channelId,
+        state,
+        err instanceof Error ? err.message : String(err),
+      );
+      await this.discordClient.editInteractionResponse(
         interactionToken,
         // biome-ignore lint/security/noSecrets: static Japanese error message, not a secret
         "テスト作成中にエラーが発生しました。しばらくしてから再試行してください。",

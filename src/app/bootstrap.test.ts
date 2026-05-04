@@ -27,6 +27,7 @@ const defaultConfig = {
   logging: { level: "info" },
   github: { owner: "test-owner", repo: "test-repo" },
   workspace: { root: "/tmp/workspace" },
+  develop: { codexModel: "codex-mini", timeoutMs: 600000 },
 };
 
 function setupMocks(
@@ -123,6 +124,12 @@ function setupMocks(
   vi.doMock("@/ai/client/codex-exec.client", () => ({
     // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
     CodexExecClient: vi.fn().mockImplementation(function () {
+      return {};
+    }),
+  }));
+  vi.doMock("@/ai/services/develop.service", () => ({
+    // biome-ignore lint/complexity/useArrowFunction: constructor mock requires function expression
+    DevelopService: vi.fn().mockImplementation(function () {
       return {};
     }),
   }));
@@ -302,6 +309,7 @@ describe("bootstrap logging", () => {
       logging: { level: "info" },
       github: { owner: "test-owner", repo: "test-repo" },
       workspace: { root: "/tmp/workspace" },
+      develop: { codexModel: "codex-mini", timeoutMs: 600000 },
     };
     setupMocks(config);
 

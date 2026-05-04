@@ -2,6 +2,7 @@ import { createDiscordAdapter } from "@chat-adapter/discord";
 import { CodexExecClient } from "@/ai/client/codex-exec.client";
 import { OpenAIClient } from "@/ai/client/openai.client";
 import { AIService } from "@/ai/services/ai.service";
+import { DevelopService } from "@/ai/services/develop.service";
 import { SummaryService } from "@/ai/services/summary.service";
 import { type BotConfig, loadConfig } from "@/app/config/bot.config";
 import { env } from "@/app/config/env";
@@ -52,59 +53,39 @@ function createAIService(): {
   return { aiService: new AIService(openai, redis), redis, openai };
 }
 
-function createDevelopCommands(
-  redis: RedisClient,
+function createDevelopService(
   config: BotConfig,
-  discordClient: DiscordClient,
-): Command[] {
+  redis: RedisClient,
+): DevelopService {
   const codexApiKey = getCodexApiKey();
-  const githubOwner = config.github.owner;
-  const githubRepo = config.github.repo;
-  const github = new GitHubClient();
-  const workspace = new WorkspaceManager(config.workspace.root);
   const codexExec = new CodexExecClient(codexApiKey, {
     baseUrl: env.CODEX_BASE_URL,
-    model: env.CODEX_MODEL,
+    model: config.develop.codexModel,
   });
+  const github = new GitHubClient();
+  const workspace = new WorkspaceManager(config.workspace.root);
+  return new DevelopService({
+    redis,
+    codexExec,
+    github,
+    workspace,
+    githubOwner: config.github.owner,
+    githubRepo: config.github.repo,
+  });
+}
 
+function createDevelopCommands(
+  developService: DevelopService,
+  discordClient: DiscordClient,
+): Command[] {
   return [
-    new InitCommand({
-      redis,
-      github,
-      workspace,
-      discordClient,
-      githubOwner,
-      githubRepo,
-    }),
-    new PlanCommand({
-      redis,
-      codexExec,
-      github,
-      discordClient,
-      githubOwner,
-      githubRepo,
-    }),
-    new DevelopCommand({ redis, codexExec, workspace, discordClient }),
-    new TestCommand({ redis, codexExec, workspace, discordClient }),
-    new CommitCommand({
-      redis,
-      codexExec,
-      workspace,
-      github,
-      discordClient,
-      githubOwner,
-      githubRepo,
-    }),
-    new PrCommand({
-      redis,
-      codexExec,
-      github,
-      workspace,
-      discordClient,
-      githubOwner,
-      githubRepo,
-    }),
-    new ResetCommand({ redis, workspace, discordClient }),
+    new InitCommand(developService, discordClient),
+    new PlanCommand(developService, discordClient),
+    new DevelopCommand(developService, discordClient),
+    new TestCommand(developService, discordClient),
+    new CommitCommand(developService, discordClient),
+    new PrCommand(developService, discordClient),
+    new ResetCommand(developService, discordClient),
   ];
 }
 
@@ -125,7 +106,10 @@ function createDiscordDeps(
   const chatCommand = new ChatCommand(aiService, discordClient);
   const summaryService = new SummaryService(openai, new WebFetcherClient());
   const summaryCommand = new SummaryCommand(summaryService, discordClient);
-  const developCommands = createDevelopCommands(redis, config, discordClient);
+  const developCommands = createDevelopCommands(
+    createDevelopService(config, redis),
+    discordClient,
+  );
 
   const commands: Command[] = [
     new PingCommand(),

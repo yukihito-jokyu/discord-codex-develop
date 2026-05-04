@@ -16,7 +16,7 @@ export const botConfigSchema = z.object({
   bot: z.object({
     defaultModel: z.string().min(1),
     maxTokens: z.number().int().min(0),
-    timeoutMs: z.number().int().min(0),
+    timeoutMs: z.number().int().min(1),
     allowedUsers: z.array(z.string()).optional(),
   }),
   server: z.object({
@@ -39,6 +39,12 @@ export const botConfigSchema = z.object({
   workspace: z.object({
     root: z.string().min(1),
   }),
+  develop: z
+    .object({
+      codexModel: z.string().min(1).default("codex-mini"),
+      timeoutMs: z.number().int().min(1).default(600000),
+    })
+    .default({ codexModel: "codex-mini", timeoutMs: 600000 }),
 });
 
 export type BotConfig = z.infer<typeof botConfigSchema>;

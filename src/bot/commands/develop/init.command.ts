@@ -1,7 +1,4 @@
-import type { GitHubClient } from "@/infrastructure/github/github.client";
-import type { RedisClient } from "@/infrastructure/redis/redis.client";
-import type { ThreadState } from "@/infrastructure/redis/thread-state.types";
-import type { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
+import type { DevelopService } from "@/ai/services/develop.service";
 import { deferred, message } from "@/sdk/discord/adapter/response.adapter";
 import type { DiscordClient } from "@/sdk/discord/discord.client";
 import type {
@@ -11,15 +8,6 @@ import type {
 import { formatForDiscord } from "@/shared/utils/format";
 import { getLogger } from "@/shared/utils/logger";
 import type { Command } from "../command.interface";
-
-interface InitCommandDeps {
-  redis: RedisClient;
-  github: GitHubClient;
-  workspace: WorkspaceManager;
-  discordClient: DiscordClient;
-  githubOwner: string;
-  githubRepo: string;
-}
 
 export class InitCommand implements Command {
   readonly name = "init";
@@ -36,7 +24,10 @@ export class InitCommand implements Command {
     ],
   };
 
-  constructor(private readonly deps: InitCommandDeps) {}
+  constructor(
+    private readonly developService: DevelopService,
+    private readonly discordClient: DiscordClient,
+  ) {}
 
   execute(interaction: DomainInteraction): Promise<DomainResponse> {
     const log = getLogger();
@@ -59,121 +50,91 @@ export class InitCommand implements Command {
     return Promise.resolve(deferred());
   }
 
-  private async validate(
+  private async processInBackground(
     interaction: DomainInteraction,
     interactionToken: string,
-  ): Promise<{ issueNumber: number } | null> {
-    const { redis, discordClient } = this.deps;
+  ): Promise<void> {
     const channelId = interaction.channelId;
     const userId = interaction.userId;
-
     const issueNumber = Number(interaction.options?.["issue-number"]);
-    if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-      await discordClient.editInteractionResponse(
-        interactionToken,
-        // biome-ignore lint/security/noSecrets: static Japanese error message, not a secret
-        "Issue番号は正の整数で指定してください。",
-      );
-      return null;
-    }
 
-    const inThread = await discordClient.isThreadChannel(channelId);
+    const inThread = await this.discordClient.isThreadChannel(channelId);
     if (inThread) {
-      await discordClient.editInteractionResponse(
+      await this.discordClient.editInteractionResponse(
         interactionToken,
         // biome-ignore lint/security/noSecrets: static Japanese error message, not a secret
         "このコマンドはスレッド外のチャンネルで実行してください。",
       );
-      return null;
+      return;
     }
 
-    const existingState = await redis.getThreadState(channelId);
-    if (existingState && existingState.subStage === "running") {
-      await discordClient.editInteractionResponse(
+    const initValid = await this.developService.validateInit({
+      channelId,
+      userId,
+      issueNumber,
+    });
+    if (!initValid.ok) {
+      await this.discordClient.editInteractionResponse(
         interactionToken,
-        // biome-ignore lint/security/noSecrets: static Japanese error message, not a secret
-        "現在別の処理が実行中です。完了してから再試行してください。",
+        initValid.error.message,
       );
-      return null;
+      return;
     }
 
-    if (existingState && existingState.initiatedBy !== userId) {
-      await discordClient.editInteractionResponse(
+    try {
+      await this.setupAndInitialize(
+        channelId,
+        userId,
+        issueNumber,
         interactionToken,
-        // biome-ignore lint/security/noSecrets: static Japanese error message, not a secret
-        "このワークフローは別のユーザーが初期化しました。",
       );
-      return null;
+    } catch (err) {
+      const log = getLogger();
+      log.error({ err: String(err) }, "InitCommand error");
+      await this.discordClient.editInteractionResponse(
+        interactionToken,
+        // biome-ignore lint/security/noSecrets: Japanese UI text, not a secret
+        "初期化中にエラーが発生しました。しばらくしてから再試行してください。",
+      );
     }
-
-    return { issueNumber };
   }
 
-  private async setupWorkspace(
-    interactionToken: string,
+  private async setupAndInitialize(
+    channelId: string,
+    userId: string,
     issueNumber: number,
-  ): Promise<{
-    branchName: string;
-    targetDir: string;
-  } | null> {
-    const { workspace, discordClient, githubOwner, githubRepo } = this.deps;
-    const branchName = `feature/${issueNumber}`;
-    const targetDir = `${githubRepo}-${issueNumber}`;
-    const repoUrl = `https://github.com/${githubOwner}/${githubRepo}.git`;
-
-    const cloneResult = await workspace.ensureClone(repoUrl, targetDir);
-    if (!cloneResult.ok) {
-      await discordClient.editInteractionResponse(
+    interactionToken: string,
+  ): Promise<void> {
+    const issueResult = await this.developService.fetchIssue(issueNumber);
+    if (!issueResult.ok) {
+      await this.discordClient.editInteractionResponse(
         interactionToken,
-        `リポジトリのcloneに失敗しました: ${cloneResult.error.message}`,
+        `Issue #${issueNumber} の取得に失敗しました: ${issueResult.error.message}`,
       );
-      return null;
+      return;
     }
 
-    const syncResult = await workspace.syncMain(targetDir);
-    if (!syncResult.ok) {
-      await discordClient.editInteractionResponse(
+    const wsResult = await this.developService.setupWorkspace(issueNumber);
+    if (!wsResult.ok) {
+      await this.discordClient.editInteractionResponse(
         interactionToken,
-        `mainブランチの同期に失敗しました: ${syncResult.error.message}`,
+        `ワークスペースの準備に失敗しました: ${wsResult.error.message}`,
       );
-      return null;
+      return;
     }
 
-    const branchResult = await workspace.createBranch(targetDir, branchName);
-    if (!branchResult.ok) {
-      await discordClient.editInteractionResponse(
-        interactionToken,
-        `ブランチの作成に失敗しました: ${branchResult.error.message}`,
-      );
-      return null;
-    }
-
-    return { branchName, targetDir };
-  }
-
-  private async createThreadAndSaveState(options: {
-    interactionToken: string;
-    channelId: string;
-    userId: string;
-    issueNumber: number;
-    issue: import("@/infrastructure/github/github.client").IssueInfo;
-    ws: { branchName: string; targetDir: string };
-  }): Promise<void> {
-    const { interactionToken, channelId, userId, issueNumber, issue, ws } =
-      options;
-    const { redis, discordClient, githubOwner, githubRepo } = this.deps;
-    const log = getLogger();
     // biome-ignore lint/security/noSecrets: static Japanese UI text, not a secret
     const noBodyText = "(本文なし)";
+    const issue = issueResult.value;
     const initMessage = `**Issue #${issueNumber}: ${issue.title}**\n\n${issue.body ? formatForDiscord(issue.body) : noBodyText}`;
-    const messageId = await discordClient.editInteractionResponse(
+    const messageId = await this.discordClient.editInteractionResponse(
       interactionToken,
       initMessage,
     );
 
     let threadId = channelId;
     if (messageId) {
-      const createdThreadId = await discordClient.createThreadFromMessage(
+      const createdThreadId = await this.discordClient.createThreadFromMessage(
         channelId,
         messageId,
         `Issue #${issueNumber}: ${issue.title}`.slice(0, 100),
@@ -181,61 +142,18 @@ export class InitCommand implements Command {
       if (createdThreadId) threadId = createdThreadId;
     }
 
-    const initialState: ThreadState = {
-      initiatedBy: userId,
+    await this.developService.initializeState({
+      channelId: threadId,
+      userId,
       issueNumber,
-      repo: `${githubOwner}/${githubRepo}`,
-      branch: ws.branchName,
-      workspacePath: ws.targetDir,
-      currentPhase: "init",
-      subStage: "idle",
-      lastError: null,
-      planOutput: null,
-    };
+      branchName: wsResult.value.branchName,
+      targetDir: wsResult.value.targetDir,
+    });
 
-    await redis.saveThreadState(threadId, initialState);
+    const log = getLogger();
     log.info(
-      { threadId, issueNumber, branch: ws.branchName },
+      { threadId, issueNumber, branch: wsResult.value.branchName },
       "InitCommand completed",
     );
-  }
-
-  private async processInBackground(
-    interaction: DomainInteraction,
-    interactionToken: string,
-  ): Promise<void> {
-    const { github, discordClient, githubOwner, githubRepo } = this.deps;
-    const channelId = interaction.channelId;
-
-    const validated = await this.validate(interaction, interactionToken);
-    if (!validated) return;
-
-    const issueResult = await github.getIssue(
-      githubOwner,
-      githubRepo,
-      validated.issueNumber,
-    );
-    if (!issueResult.ok) {
-      await discordClient.editInteractionResponse(
-        interactionToken,
-        `Issue #${validated.issueNumber} の取得に失敗しました: ${issueResult.error.message}`,
-      );
-      return;
-    }
-
-    const ws = await this.setupWorkspace(
-      interactionToken,
-      validated.issueNumber,
-    );
-    if (!ws) return;
-
-    await this.createThreadAndSaveState({
-      interactionToken,
-      channelId,
-      userId: interaction.userId,
-      issueNumber: validated.issueNumber,
-      issue: issueResult.value,
-      ws,
-    });
   }
 }
