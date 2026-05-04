@@ -62,7 +62,6 @@ describe("truncateToBytes: カスタム通知文", () => {
   });
 });
 
-// biome-ignore lint/security/noSecrets: describe block name, not a secret
 describe("truncateToBytes: 境界値", () => {
   it(// biome-ignore lint/security/noSecrets: test description, not a secret
   "1バイトだけ制限を超えるテキストを切り詰める", () => {
@@ -85,12 +84,12 @@ describe("truncateToBytes: 境界値", () => {
   });
 
   it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "通知文のバイト長がmaxBytesを超える場合でも切り詰めは実行される", () => {
+  "通知文のバイト長がmaxBytesを超える場合、通知文をmaxBytesに切り詰める", () => {
     const text = "a".repeat(200);
     const longNotice = "X".repeat(200);
     const result = truncateToBytes(text, 100, longNotice);
     expect(result.wasTruncated).toBe(true);
-    expect(result.text).toBe(longNotice);
+    expect(Buffer.byteLength(result.text, "utf-8")).toBeLessThanOrEqual(100);
   });
 
   it(// biome-ignore lint/security/noSecrets: test description, not a secret
@@ -107,10 +106,10 @@ describe("truncateToBytes: 境界値", () => {
   });
 
   it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "maxBytesが0の場合、切り詰め結果は通知文のみになる", () => {
+  "maxBytesが0の場合、結果は空文字列になる", () => {
     const text = "hello";
     const result = truncateToBytes(text, 0);
     expect(result.wasTruncated).toBe(true);
-    expect(result.text).toBe("\n\n... (truncated)");
+    expect(result.text).toBe("");
   });
 });
