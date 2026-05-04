@@ -1,17 +1,25 @@
 import { MessageFlags } from "discord-api-types/v10";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { RedisClient } from "@/infrastructure/redis/redis.client";
+import type { DevelopService } from "@/ai/services/develop.service";
 import type {
   Phase,
   ThreadState,
 } from "@/infrastructure/redis/thread-state.types";
-import type { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
 import type { DiscordClient } from "@/sdk/discord/discord.client";
 import type { DomainInteraction } from "@/sdk/discord/types/domain";
 import { AppError } from "@/shared/types/errors";
 import { err, ok } from "@/shared/types/result";
 import { ResetCommand } from "./reset.command";
-import { validateThreadCommand } from "./validate";
+
+const mockValidateThreadCommand = vi.fn();
+const mockDiscardChanges = vi.fn();
+
+vi.mock("@/ai/services/develop.service", () => ({
+  DevelopService: vi.fn().mockImplementation(() => ({
+    validateThreadCommand: mockValidateThreadCommand,
+    discardChanges: mockDiscardChanges,
+  })),
+}));
 
 vi.mock("@/shared/utils/logger", () => ({
   getLogger: vi.fn().mockReturnValue({
@@ -20,10 +28,6 @@ vi.mock("@/shared/utils/logger", () => ({
     error: vi.fn(),
     warn: vi.fn(),
   }),
-}));
-
-vi.mock("./validate", () => ({
-  validateThreadCommand: vi.fn(),
 }));
 
 function createInteraction(
@@ -58,22 +62,6 @@ function createMockThreadState(
   };
 }
 
-function createMockRedis(): RedisClient {
-  return {
-    getThreadState: vi.fn().mockResolvedValue(createMockThreadState()),
-    saveThreadState: vi.fn().mockResolvedValue(undefined),
-    compareAndSwapPhase: vi.fn().mockResolvedValue(true),
-    getCodexThread: vi.fn().mockResolvedValue(null),
-    saveCodexThread: vi.fn().mockResolvedValue(undefined),
-  } as unknown as RedisClient;
-}
-
-function createMockWorkspace(): WorkspaceManager {
-  return {
-    discardChanges: vi.fn().mockResolvedValue(ok(undefined)),
-  } as unknown as WorkspaceManager;
-}
-
 function createMockDiscordClient(): DiscordClient {
   return {
     editInteractionResponse: vi.fn().mockResolvedValue("msg-123"),
@@ -86,22 +74,27 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+function createCommand(discordClientOverride?: DiscordClient) {
+  const developService = {
+    validateThreadCommand: mockValidateThreadCommand,
+    discardChanges: mockDiscardChanges,
+  };
+  const discordClient = discordClientOverride ?? createMockDiscordClient();
+  const command = new ResetCommand(
+    developService as unknown as DevelopService,
+    discordClient,
+  );
+  return { command, developService, discordClient };
+}
+
 describe("ResetCommand properties", () => {
   it("has name 'reset'", () => {
-    const command = new ResetCommand({
-      redis: createMockRedis(),
-      workspace: createMockWorkspace(),
-      discordClient: createMockDiscordClient(),
-    });
+    const { command } = createCommand();
     expect(command.name).toBe("reset");
   });
 
   it("has definition with description", () => {
-    const command = new ResetCommand({
-      redis: createMockRedis(),
-      workspace: createMockWorkspace(),
-      discordClient: createMockDiscordClient(),
-    });
+    const { command } = createCommand();
     expect(command.definition).toEqual({
       description: "ワークスペースの変更を破棄",
     });
@@ -112,12 +105,8 @@ describe("ResetCommand deferred response", () => {
   let command: ResetCommand;
 
   beforeEach(() => {
-    command = new ResetCommand({
-      redis: createMockRedis(),
-      workspace: createMockWorkspace(),
-      discordClient: createMockDiscordClient(),
-    });
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ({ command } = createCommand());
   });
 
   it("returns deferred response immediately", async () => {
@@ -138,24 +127,19 @@ describe("ResetCommand thread validation", () => {
   let command: ResetCommand;
 
   beforeEach(() => {
-    command = new ResetCommand({
-      redis: createMockRedis(),
-      workspace: createMockWorkspace(),
-      discordClient: createMockDiscordClient(),
-    });
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ({ command } = createCommand());
   });
 
   it("accepts any phase", async () => {
     const state = createMockThreadState();
-    (validateThreadCommand as ReturnType<typeof vi.fn>).mockResolvedValue({
-      state,
-    });
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockDiscardChanges.mockResolvedValue(ok(undefined));
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(validateThreadCommand).toHaveBeenCalledWith(
+    expect(mockValidateThreadCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedPhases: [
           "init",
@@ -169,45 +153,36 @@ describe("ResetCommand thread validation", () => {
     );
   });
 
-  it("does nothing when validateThreadCommand returns null", async () => {
-    (validateThreadCommand as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  it("does nothing when validateThreadCommand returns error", async () => {
+    mockValidateThreadCommand.mockResolvedValue(
+      err(new AppError("validation failed", "VALIDATION_ERROR")),
+    );
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    const workspace = createMockWorkspace();
-    expect(workspace.discardChanges).not.toHaveBeenCalled();
+    expect(mockDiscardChanges).not.toHaveBeenCalled();
   });
 });
 
 describe("ResetCommand success flow", () => {
   let command: ResetCommand;
-  let workspace: WorkspaceManager;
   let discordClient: DiscordClient;
 
   beforeEach(() => {
-    workspace = createMockWorkspace();
-    discordClient = createMockDiscordClient();
-    command = new ResetCommand({
-      redis: createMockRedis(),
-      workspace,
-      discordClient,
-    });
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("discards changes and responds with success message", async () => {
     const state = createMockThreadState();
-    (validateThreadCommand as ReturnType<typeof vi.fn>).mockResolvedValue({
-      state,
-    });
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockDiscardChanges.mockResolvedValue(ok(undefined));
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(workspace.discardChanges).toHaveBeenCalledWith(
-      "/workspace/issue-42",
-    );
+    expect(mockDiscardChanges).toHaveBeenCalledWith(state);
 
     expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
@@ -221,24 +196,16 @@ describe("ResetCommand error when discard fails", () => {
   let discordClient: DiscordClient;
 
   beforeEach(() => {
-    discordClient = createMockDiscordClient();
-    const workspace = createMockWorkspace();
-    (workspace.discardChanges as ReturnType<typeof vi.fn>).mockResolvedValue(
-      err(new AppError("git checkout failed", "GIT_ERROR")),
-    );
-    command = new ResetCommand({
-      redis: createMockRedis(),
-      workspace,
-      discordClient,
-    });
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("responds with error message when discardChanges fails", async () => {
     const state = createMockThreadState();
-    (validateThreadCommand as ReturnType<typeof vi.fn>).mockResolvedValue({
-      state,
-    });
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockDiscardChanges.mockResolvedValue(
+      err(new AppError("git checkout failed", "GIT_ERROR")),
+    );
 
     await command.execute(createInteraction());
     await flushPromises();

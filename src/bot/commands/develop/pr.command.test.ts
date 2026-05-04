@@ -1,15 +1,26 @@
 import { MessageFlags } from "discord-api-types/v10";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CodexExecClient } from "@/ai/client/codex-exec.client";
-import type { GitHubClient } from "@/infrastructure/github/github.client";
-import type { RedisClient } from "@/infrastructure/redis/redis.client";
+import type { DevelopService } from "@/ai/services/develop.service";
 import type { ThreadState } from "@/infrastructure/redis/thread-state.types";
-import type { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
 import type { DiscordClient } from "@/sdk/discord/discord.client";
 import type { DomainInteraction } from "@/sdk/discord/types/domain";
 import { AppError } from "@/shared/types/errors";
 import { err, ok } from "@/shared/types/result";
 import { PrCommand } from "./pr.command";
+
+const mockValidateThreadCommand = vi.fn();
+const mockSetRunning = vi.fn();
+const mockExecutePr = vi.fn();
+const mockSetError = vi.fn();
+
+vi.mock("@/ai/services/develop.service", () => ({
+  DevelopService: vi.fn().mockImplementation(() => ({
+    validateThreadCommand: mockValidateThreadCommand,
+    setRunning: mockSetRunning,
+    executePr: mockExecutePr,
+    setError: mockSetError,
+  })),
+}));
 
 vi.mock("@/shared/utils/logger", () => ({
   getLogger: vi.fn().mockReturnValue({
@@ -17,6 +28,10 @@ vi.mock("@/shared/utils/logger", () => ({
     debug: vi.fn(),
     error: vi.fn(),
   }),
+}));
+
+vi.mock("@/shared/utils/format", () => ({
+  formatForDiscord: vi.fn((text: string) => text),
 }));
 
 function flushPromises(): Promise<void> {
@@ -55,59 +70,6 @@ function createMockThreadState(
   };
 }
 
-function createMockRedisClient(): RedisClient {
-  return {
-    getThreadState: vi.fn().mockResolvedValue(createMockThreadState()),
-    saveThreadState: vi.fn().mockResolvedValue(undefined),
-    getCodexThread: vi.fn().mockResolvedValue(null),
-    saveCodexThread: vi.fn().mockResolvedValue(undefined),
-    compareAndSwapPhase: vi.fn().mockResolvedValue(true),
-  } as unknown as RedisClient;
-}
-
-function createMockCodexExecClient(): CodexExecClient {
-  return {
-    startThread: vi.fn().mockResolvedValue({
-      threadId: "codex-thread-1",
-      response: "push response",
-      usage: null,
-    }),
-    resumeThread: vi.fn().mockResolvedValue({
-      threadId: "codex-thread-1",
-      response: "push response",
-      usage: null,
-    }),
-  } as unknown as CodexExecClient;
-}
-
-function createMockGitHubClient(): GitHubClient {
-  return {
-    getIssue: vi.fn().mockResolvedValue(
-      ok({
-        number: 15,
-        title: "Test",
-        body: "body",
-        owner: "o",
-        repo: "r",
-        state: "open",
-        labels: [],
-        assignees: [],
-        createdAt: "",
-        updatedAt: "",
-      }),
-    ),
-    createPullRequest: vi
-      .fn()
-      .mockResolvedValue(
-        ok({ url: "https://github.com/o/r/pull/1", number: 1 }),
-      ),
-  } as unknown as GitHubClient;
-}
-
-function createMockWorkspaceManager(): WorkspaceManager {
-  return {} as unknown as WorkspaceManager;
-}
-
 function createMockDiscordClient(): DiscordClient {
   return {
     editInteractionResponse: vi.fn().mockResolvedValue("msg-123"),
@@ -115,33 +77,34 @@ function createMockDiscordClient(): DiscordClient {
   } as unknown as DiscordClient;
 }
 
-function createCommandDeps() {
-  return {
-    redis: createMockRedisClient(),
-    codexExec: createMockCodexExecClient(),
-    workspace: createMockWorkspaceManager(),
-    github: createMockGitHubClient(),
-    discordClient: createMockDiscordClient(),
-    githubOwner: "o",
-    githubRepo: "r",
+function createCommand(discordClientOverride?: DiscordClient) {
+  const developService = {
+    validateThreadCommand: mockValidateThreadCommand,
+    setRunning: mockSetRunning,
+    executePr: mockExecutePr,
+    setError: mockSetError,
   };
+  const discordClient = discordClientOverride ?? createMockDiscordClient();
+  const command = new PrCommand(
+    developService as unknown as DevelopService,
+    discordClient,
+  );
+  return { command, developService, discordClient };
 }
 
 describe("PrCommand properties", () => {
   it("has name 'pr'", () => {
-    const command = new PrCommand(createCommandDeps());
+    const { command } = createCommand();
     expect(command.name).toBe("pr");
   });
 });
 
 describe("PrCommand deferred response", () => {
   let command: PrCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new PrCommand(deps);
+    vi.clearAllMocks();
+    ({ command } = createCommand());
   });
 
   it("returns deferred response immediately", async () => {
@@ -160,83 +123,76 @@ describe("PrCommand deferred response", () => {
 
 describe("PrCommand validates thread", () => {
   let command: PrCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new PrCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("requires phase 'committed'", async () => {
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecutePr.mockResolvedValue(
+      ok({ prUrl: "https://github.com/o/r/pull/1" }),
+    );
+
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.codexExec.startThread).toHaveBeenCalled();
+    expect(mockValidateThreadCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedPhases: ["committed"],
+      }),
+    );
+    expect(mockExecutePr).toHaveBeenCalled();
   });
 
   it("rejects when phase is wrong", async () => {
-    deps.redis.getThreadState = vi
-      .fn()
-      .mockResolvedValue(createMockThreadState({ currentPhase: "tested" }));
+    mockValidateThreadCommand.mockResolvedValue(
+      err(
+        new AppError(
+          "現在のフェーズが不正です (現在: tested, 期待: committed)",
+          "VALIDATION_ERROR",
+        ),
+      ),
+    );
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
       "現在のフェーズが不正です (現在: tested, 期待: committed)",
     );
-    expect(deps.codexExec.startThread).not.toHaveBeenCalled();
+    expect(mockExecutePr).not.toHaveBeenCalled();
   });
 });
 
 describe("PrCommand success flow", () => {
   let command: PrCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new PrCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
-  it("pushes branch via codex, creates PR on GitHub, updates phase to completed, responds with PR URL", async () => {
+  it("executes PR and responds with PR URL", async () => {
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecutePr.mockResolvedValue(
+      ok({ prUrl: "https://github.com/o/r/pull/1" }),
+    );
+
     await command.execute(createInteraction());
     await flushPromises();
 
-    // Push branch via codex
-    expect(deps.codexExec.startThread).toHaveBeenCalledWith(
-      expect.stringContaining("git push -u origin HEAD"),
-      expect.objectContaining({
-        cwd: "/workspace/test-repo",
-        sandboxMode: "write",
-      }),
-    );
-
-    // Fetches issue for title
-    expect(deps.github.getIssue).toHaveBeenCalledWith("o", "r", 15);
-
-    // Creates PR on GitHub
-    expect(deps.github.createPullRequest).toHaveBeenCalledWith("o", "r", {
-      title: "Test",
-      body: "Closes #15\n\nbody",
-      head: "feature/15",
-      base: "main",
-    });
-
-    // Updates phase to completed
-    expect(deps.redis.compareAndSwapPhase).toHaveBeenCalledWith(
-      "thread-1",
-      "committed",
-      "completed",
-    );
-
-    // Saves thread state
-    expect(deps.redis.saveThreadState).toHaveBeenCalled();
+    // Verify executePr was called
+    expect(mockExecutePr).toHaveBeenCalledWith("thread-1", state);
 
     // Responds with PR URL
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
       expect.stringContaining("https://github.com/o/r/pull/1"),
     );
@@ -245,66 +201,58 @@ describe("PrCommand success flow", () => {
 
 describe("PrCommand PR creation failure", () => {
   let command: PrCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new PrCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("handles error when PR creation fails", async () => {
-    deps.github.createPullRequest = vi
-      .fn()
-      .mockResolvedValue(err(new AppError("PR already exists", "PR_ERROR")));
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecutePr.mockResolvedValue(
+      err(new AppError("PR already exists", "PR_ERROR")),
+    );
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
-      "test-token",
-      "PRの作成に失敗しました: PR already exists",
+    expect(mockSetError).toHaveBeenCalledWith(
+      "thread-1",
+      state,
+      "PR already exists",
     );
 
-    expect(deps.redis.saveThreadState).toHaveBeenCalledWith(
-      "thread-1",
-      expect.objectContaining({
-        subStage: "idle",
-        lastError: "PR already exists",
-      }),
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
+      "test-token",
+      "PRの作成に失敗しました: PR already exists",
     );
   });
 });
 
 describe("PrCommand codex push failure", () => {
   let command: PrCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new PrCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("handles error when codex push fails", async () => {
-    deps.codexExec.startThread = vi
-      .fn()
-      .mockRejectedValue(new Error("push failed"));
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecutePr.mockRejectedValue(new Error("push failed"));
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
       "PR作成中にエラーが発生しました。しばらくしてから再試行してください。",
     );
 
-    expect(deps.redis.saveThreadState).toHaveBeenCalledWith(
-      "thread-1",
-      expect.objectContaining({
-        subStage: "idle",
-        lastError: "push failed",
-      }),
-    );
+    expect(mockSetError).toHaveBeenCalledWith("thread-1", state, "push failed");
   });
 });

@@ -1,13 +1,25 @@
 import { MessageFlags } from "discord-api-types/v10";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GitHubClient } from "@/infrastructure/github/github.client";
-import type { RedisClient } from "@/infrastructure/redis/redis.client";
-import type { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
+import type { DevelopService } from "@/ai/services/develop.service";
 import type { DiscordClient } from "@/sdk/discord/discord.client";
 import type { DomainInteraction } from "@/sdk/discord/types/domain";
 import { AppError } from "@/shared/types/errors";
 import { err, ok } from "@/shared/types/result";
 import { InitCommand } from "./init.command";
+
+const mockValidateInit = vi.fn();
+const mockFetchIssue = vi.fn();
+const mockSetupWorkspace = vi.fn();
+const mockInitializeState = vi.fn();
+
+vi.mock("@/ai/services/develop.service", () => ({
+  DevelopService: vi.fn().mockImplementation(() => ({
+    validateInit: mockValidateInit,
+    fetchIssue: mockFetchIssue,
+    setupWorkspace: mockSetupWorkspace,
+    initializeState: mockInitializeState,
+  })),
+}));
 
 vi.mock("@/shared/utils/logger", () => ({
   getLogger: vi.fn().mockReturnValue({
@@ -32,40 +44,6 @@ function createInteraction(
   };
 }
 
-function createMockRedisClient(): RedisClient {
-  return {
-    getThreadState: vi.fn().mockResolvedValue(null),
-    saveThreadState: vi.fn().mockResolvedValue(undefined),
-  } as unknown as RedisClient;
-}
-
-function createMockGitHubClient(): GitHubClient {
-  return {
-    getIssue: vi.fn().mockResolvedValue(
-      ok({
-        number: 15,
-        title: "Test Issue",
-        body: "body",
-        owner: "owner",
-        repo: "repo",
-        state: "open" as const,
-        labels: [],
-        assignees: [],
-        createdAt: "2025-01-01T00:00:00Z",
-        updatedAt: "2025-01-01T00:00:00Z",
-      }),
-    ),
-  } as unknown as GitHubClient;
-}
-
-function createMockWorkspaceManager(): WorkspaceManager {
-  return {
-    ensureClone: vi.fn().mockResolvedValue(ok(undefined)),
-    syncMain: vi.fn().mockResolvedValue(ok(undefined)),
-    createBranch: vi.fn().mockResolvedValue(ok(undefined)),
-  } as unknown as WorkspaceManager;
-}
-
 function createMockDiscordClient(): DiscordClient {
   return {
     isThreadChannel: vi.fn().mockResolvedValue(false),
@@ -78,21 +56,19 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-function createCommand(overrides: Record<string, unknown> = {}) {
-  const redis = createMockRedisClient();
-  const github = createMockGitHubClient();
-  const workspace = createMockWorkspaceManager();
-  const discordClient = createMockDiscordClient();
-  const command = new InitCommand({
-    redis,
-    github,
-    workspace,
+function createCommand(discordClientOverride?: DiscordClient) {
+  const developService = {
+    validateInit: mockValidateInit,
+    fetchIssue: mockFetchIssue,
+    setupWorkspace: mockSetupWorkspace,
+    initializeState: mockInitializeState,
+  };
+  const discordClient = discordClientOverride ?? createMockDiscordClient();
+  const command = new InitCommand(
+    developService as unknown as DevelopService,
     discordClient,
-    githubOwner: "test-owner",
-    githubRepo: "test-repo",
-    ...overrides,
-  });
-  return { command, redis, github, workspace, discordClient };
+  );
+  return { command, developService, discordClient };
 }
 
 describe("InitCommand properties", () => {
@@ -121,8 +97,8 @@ describe("InitCommand execute", () => {
   let command: InitCommand;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     ({ command } = createCommand());
-    vi.restoreAllMocks();
   });
 
   it("returns deferred response on valid token", async () => {
@@ -140,16 +116,24 @@ describe("InitCommand execute", () => {
 });
 
 describe("InitCommand validation", () => {
-  let redis: RedisClient;
   let discordClient: DiscordClient;
   let command: InitCommand;
 
   beforeEach(() => {
-    ({ command, redis, discordClient } = createCommand());
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("rejects non-positive issue number", async () => {
+    mockValidateInit.mockResolvedValue(
+      err(
+        new AppError(
+          "Issue番号は正の整数で指定してください。",
+          "VALIDATION_ERROR",
+        ),
+      ),
+    );
+
     await command.execute(
       createInteraction({ options: { "issue-number": -1 } }),
     );
@@ -162,6 +146,15 @@ describe("InitCommand validation", () => {
   });
 
   it("rejects zero issue number", async () => {
+    mockValidateInit.mockResolvedValue(
+      err(
+        new AppError(
+          "Issue番号は正の整数で指定してください。",
+          "VALIDATION_ERROR",
+        ),
+      ),
+    );
+
     await command.execute(
       createInteraction({ options: { "issue-number": 0 } }),
     );
@@ -174,6 +167,15 @@ describe("InitCommand validation", () => {
   });
 
   it("rejects non-integer issue number", async () => {
+    mockValidateInit.mockResolvedValue(
+      err(
+        new AppError(
+          "Issue番号は正の整数で指定してください。",
+          "VALIDATION_ERROR",
+        ),
+      ),
+    );
+
     await command.execute(
       createInteraction({ options: { "issue-number": 3.5 } }),
     );
@@ -200,11 +202,14 @@ describe("InitCommand validation", () => {
   });
 
   it("rejects when existing workflow is running (subStage === 'running')", async () => {
-    (redis.getThreadState as ReturnType<typeof vi.fn>).mockResolvedValue({
-      initiatedBy: "user-1",
-      issueNumber: 10,
-      subStage: "running",
-    });
+    mockValidateInit.mockResolvedValue(
+      err(
+        new AppError(
+          "現在別の処理が実行中です。完了してから再試行してください。",
+          "VALIDATION_ERROR",
+        ),
+      ),
+    );
 
     await command.execute(createInteraction());
     await flushPromises();
@@ -216,11 +221,14 @@ describe("InitCommand validation", () => {
   });
 
   it("rejects when different user tries to re-init", async () => {
-    (redis.getThreadState as ReturnType<typeof vi.fn>).mockResolvedValue({
-      initiatedBy: "other-user",
-      issueNumber: 10,
-      subStage: "idle",
-    });
+    mockValidateInit.mockResolvedValue(
+      err(
+        new AppError(
+          "このワークフローは別のユーザーが初期化しました。",
+          "VALIDATION_ERROR",
+        ),
+      ),
+    );
 
     await command.execute(createInteraction({ userId: "user-1" }));
     await flushPromises();
@@ -233,22 +241,17 @@ describe("InitCommand validation", () => {
 });
 
 describe("InitCommand error handling", () => {
-  let github: GitHubClient;
-  let workspace: WorkspaceManager;
   let discordClient: DiscordClient;
   let command: InitCommand;
 
   beforeEach(() => {
-    const vars = createCommand();
-    github = vars.github;
-    workspace = vars.workspace;
-    discordClient = vars.discordClient;
-    command = vars.command;
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
-  it("handles github.getIssue failure", async () => {
-    (github.getIssue as ReturnType<typeof vi.fn>).mockResolvedValue(
+  it("handles fetchIssue failure", async () => {
+    mockValidateInit.mockResolvedValue(ok(null));
+    mockFetchIssue.mockResolvedValue(
       err(new AppError("not found", "NOT_FOUND")),
     );
 
@@ -261,8 +264,23 @@ describe("InitCommand error handling", () => {
     );
   });
 
-  it("handles workspace.ensureClone failure", async () => {
-    (workspace.ensureClone as ReturnType<typeof vi.fn>).mockResolvedValue(
+  it("handles setupWorkspace failure", async () => {
+    mockValidateInit.mockResolvedValue(ok(null));
+    mockFetchIssue.mockResolvedValue(
+      ok({
+        number: 15,
+        title: "Test Issue",
+        body: "body",
+        owner: "owner",
+        repo: "repo",
+        state: "open" as const,
+        labels: [],
+        assignees: [],
+        createdAt: "2025-01-01T00:00:00Z",
+        updatedAt: "2025-01-01T00:00:00Z",
+      }),
+    );
+    mockSetupWorkspace.mockResolvedValue(
       err(new AppError("clone failed", "EXTERNAL_SERVICE_ERROR")),
     );
 
@@ -271,73 +289,47 @@ describe("InitCommand error handling", () => {
 
     expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
-      "リポジトリのcloneに失敗しました: clone failed",
-    );
-  });
-
-  it("handles workspace.syncMain failure", async () => {
-    (workspace.syncMain as ReturnType<typeof vi.fn>).mockResolvedValue(
-      err(new AppError("sync failed", "EXTERNAL_SERVICE_ERROR")),
-    );
-
-    await command.execute(createInteraction());
-    await flushPromises();
-
-    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
-      "test-token",
-      "mainブランチの同期に失敗しました: sync failed",
-    );
-  });
-
-  it("handles workspace.createBranch failure", async () => {
-    (workspace.createBranch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      err(new AppError("branch failed", "EXTERNAL_SERVICE_ERROR")),
-    );
-
-    await command.execute(createInteraction());
-    await flushPromises();
-
-    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
-      "test-token",
-      "ブランチの作成に失敗しました: branch failed",
+      "ワークスペースの準備に失敗しました: clone failed",
     );
   });
 });
 
 describe("InitCommand success flow", () => {
-  let redis: RedisClient;
-  let github: GitHubClient;
-  let workspace: WorkspaceManager;
   let discordClient: DiscordClient;
   let command: InitCommand;
 
   beforeEach(() => {
-    const vars = createCommand();
-    redis = vars.redis;
-    github = vars.github;
-    workspace = vars.workspace;
-    discordClient = vars.discordClient;
-    command = vars.command;
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
-  it("fetches issue, clones repo, syncs main, creates branch, creates thread, saves state", async () => {
+  it("fetches issue, sets up workspace, creates thread, initializes state", async () => {
+    mockValidateInit.mockResolvedValue(ok(null));
+    mockFetchIssue.mockResolvedValue(
+      ok({
+        number: 15,
+        title: "Test Issue",
+        body: "body",
+        owner: "owner",
+        repo: "repo",
+        state: "open" as const,
+        labels: [],
+        assignees: [],
+        createdAt: "2025-01-01T00:00:00Z",
+        updatedAt: "2025-01-01T00:00:00Z",
+      }),
+    );
+    mockSetupWorkspace.mockResolvedValue(
+      ok({ branchName: "feature/15", targetDir: "test-repo-15" }),
+    );
+    mockInitializeState.mockResolvedValue(undefined);
+
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(github.getIssue).toHaveBeenCalledWith("test-owner", "test-repo", 15);
+    expect(mockFetchIssue).toHaveBeenCalledWith(15);
 
-    expect(workspace.ensureClone).toHaveBeenCalledWith(
-      "https://github.com/test-owner/test-repo.git",
-      "test-repo-15",
-    );
-
-    expect(workspace.syncMain).toHaveBeenCalledWith("test-repo-15");
-
-    expect(workspace.createBranch).toHaveBeenCalledWith(
-      "test-repo-15",
-      "feature/15",
-    );
+    expect(mockSetupWorkspace).toHaveBeenCalledWith(15);
 
     expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
@@ -350,16 +342,12 @@ describe("InitCommand success flow", () => {
       "Issue #15: Test Issue",
     );
 
-    expect(redis.saveThreadState).toHaveBeenCalledWith("thread-id", {
-      initiatedBy: "user-1",
+    expect(mockInitializeState).toHaveBeenCalledWith({
+      channelId: "thread-id",
+      userId: "user-1",
       issueNumber: 15,
-      repo: "test-owner/test-repo",
-      branch: "feature/15",
-      workspacePath: "test-repo-15",
-      currentPhase: "init",
-      subStage: "idle",
-      lastError: null,
-      planOutput: null,
+      branchName: "feature/15",
+      targetDir: "test-repo-15",
     });
   });
 });

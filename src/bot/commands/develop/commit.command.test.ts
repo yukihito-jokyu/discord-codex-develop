@@ -1,15 +1,26 @@
 import { MessageFlags } from "discord-api-types/v10";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CodexExecClient } from "@/ai/client/codex-exec.client";
-import type { GitHubClient } from "@/infrastructure/github/github.client";
-import type { RedisClient } from "@/infrastructure/redis/redis.client";
+import type { DevelopService } from "@/ai/services/develop.service";
 import type { ThreadState } from "@/infrastructure/redis/thread-state.types";
-import type { WorkspaceManager } from "@/infrastructure/workspace/workspace.manager";
 import type { DiscordClient } from "@/sdk/discord/discord.client";
 import type { DomainInteraction } from "@/sdk/discord/types/domain";
 import { AppError } from "@/shared/types/errors";
 import { err, ok } from "@/shared/types/result";
 import { CommitCommand } from "./commit.command";
+
+const mockValidateThreadCommand = vi.fn();
+const mockSetRunning = vi.fn();
+const mockExecuteCommit = vi.fn();
+const mockSetError = vi.fn();
+
+vi.mock("@/ai/services/develop.service", () => ({
+  DevelopService: vi.fn().mockImplementation(() => ({
+    validateThreadCommand: mockValidateThreadCommand,
+    setRunning: mockSetRunning,
+    executeCommit: mockExecuteCommit,
+    setError: mockSetError,
+  })),
+}));
 
 vi.mock("@/shared/utils/logger", () => ({
   getLogger: vi.fn().mockReturnValue({
@@ -19,8 +30,8 @@ vi.mock("@/shared/utils/logger", () => ({
   }),
 }));
 
-vi.mock("@/ai/prompts/templates/develop-commit", () => ({
-  buildDevelopCommitPrompt: vi.fn().mockReturnValue("built-commit-prompt"),
+vi.mock("@/shared/utils/format", () => ({
+  formatForDiscord: vi.fn((text: string) => text),
 }));
 
 function flushPromises(): Promise<void> {
@@ -59,61 +70,6 @@ function createMockThreadState(
   };
 }
 
-function createMockRedisClient(): RedisClient {
-  return {
-    getThreadState: vi.fn().mockResolvedValue(createMockThreadState()),
-    saveThreadState: vi.fn().mockResolvedValue(undefined),
-    getCodexThread: vi.fn().mockResolvedValue(null),
-    saveCodexThread: vi.fn().mockResolvedValue(undefined),
-    compareAndSwapPhase: vi.fn().mockResolvedValue(true),
-  } as unknown as RedisClient;
-}
-
-function createMockCodexExecClient(): CodexExecClient {
-  return {
-    startThread: vi.fn().mockResolvedValue({
-      threadId: "codex-thread-1",
-      response: "commit response",
-      usage: null,
-    }),
-    resumeThread: vi.fn().mockResolvedValue({
-      threadId: "codex-thread-1",
-      response: "commit response",
-      usage: null,
-    }),
-  } as unknown as CodexExecClient;
-}
-
-function createMockGitHubClient(): GitHubClient {
-  return {
-    getIssue: vi.fn().mockResolvedValue(
-      ok({
-        number: 15,
-        title: "Test",
-        body: "body",
-        owner: "o",
-        repo: "r",
-        state: "open",
-        labels: [],
-        assignees: [],
-        createdAt: "",
-        updatedAt: "",
-      }),
-    ),
-    createPullRequest: vi
-      .fn()
-      .mockResolvedValue(
-        ok({ url: "https://github.com/o/r/pull/1", number: 1 }),
-      ),
-  } as unknown as GitHubClient;
-}
-
-function createMockWorkspaceManager(): WorkspaceManager {
-  return {
-    getDiff: vi.fn().mockResolvedValue(ok("diff content")),
-  } as unknown as WorkspaceManager;
-}
-
 function createMockDiscordClient(): DiscordClient {
   return {
     editInteractionResponse: vi.fn().mockResolvedValue("msg-123"),
@@ -121,33 +77,34 @@ function createMockDiscordClient(): DiscordClient {
   } as unknown as DiscordClient;
 }
 
-function createCommandDeps() {
-  return {
-    redis: createMockRedisClient(),
-    codexExec: createMockCodexExecClient(),
-    workspace: createMockWorkspaceManager(),
-    github: createMockGitHubClient(),
-    discordClient: createMockDiscordClient(),
-    githubOwner: "o",
-    githubRepo: "r",
+function createCommand(discordClientOverride?: DiscordClient) {
+  const developService = {
+    validateThreadCommand: mockValidateThreadCommand,
+    setRunning: mockSetRunning,
+    executeCommit: mockExecuteCommit,
+    setError: mockSetError,
   };
+  const discordClient = discordClientOverride ?? createMockDiscordClient();
+  const command = new CommitCommand(
+    developService as unknown as DevelopService,
+    discordClient,
+  );
+  return { command, developService, discordClient };
 }
 
 describe("CommitCommand properties", () => {
   it("has name 'commit'", () => {
-    const command = new CommitCommand(createCommandDeps());
+    const { command } = createCommand();
     expect(command.name).toBe("commit");
   });
 });
 
 describe("CommitCommand deferred response", () => {
   let command: CommitCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new CommitCommand(deps);
+    vi.clearAllMocks();
+    ({ command } = createCommand());
   });
 
   it("returns deferred response immediately", async () => {
@@ -166,147 +123,136 @@ describe("CommitCommand deferred response", () => {
 
 describe("CommitCommand validates thread", () => {
   let command: CommitCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new CommitCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("requires phase 'tested'", async () => {
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecuteCommit.mockResolvedValue(ok({ response: "commit response" }));
+
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.workspace.getDiff).toHaveBeenCalled();
+    expect(mockValidateThreadCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedPhases: ["tested"],
+      }),
+    );
+    expect(mockExecuteCommit).toHaveBeenCalled();
   });
 
   it("rejects when phase is wrong", async () => {
-    deps.redis.getThreadState = vi
-      .fn()
-      .mockResolvedValue(createMockThreadState({ currentPhase: "developed" }));
+    mockValidateThreadCommand.mockResolvedValue(
+      err(
+        new AppError(
+          "現在のフェーズが不正です (現在: developed, 期待: tested)",
+          "VALIDATION_ERROR",
+        ),
+      ),
+    );
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
       "現在のフェーズが不正です (現在: developed, 期待: tested)",
     );
-    expect(deps.workspace.getDiff).not.toHaveBeenCalled();
+    expect(mockExecuteCommit).not.toHaveBeenCalled();
   });
 });
 
 describe("CommitCommand success flow", () => {
   let command: CommitCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new CommitCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
-  it("gets diff, fetches issue for title, builds commit prompt, executes codex, updates phase to committed", async () => {
+  it("executes commit and responds with formatted output", async () => {
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecuteCommit.mockResolvedValue(ok({ response: "commit output" }));
+
     await command.execute(createInteraction());
     await flushPromises();
 
-    // Gets diff from workspace
-    expect(deps.workspace.getDiff).toHaveBeenCalledWith("/workspace/test-repo");
-
-    // Fetches issue for title
-    expect(deps.github.getIssue).toHaveBeenCalledWith("o", "r", 15);
-
-    // Builds commit prompt (mocked, but we verify codexExec was called)
-    expect(deps.codexExec.startThread).toHaveBeenCalledWith(
-      "built-commit-prompt",
-      expect.objectContaining({
-        cwd: "/workspace/test-repo",
-        sandboxMode: "write",
-      }),
-    );
-
-    // Updates phase to committed
-    expect(deps.redis.compareAndSwapPhase).toHaveBeenCalledWith(
-      "thread-1",
-      "tested",
-      "committed",
-    );
-
-    // Saves thread state
-    expect(deps.redis.saveThreadState).toHaveBeenCalled();
+    // Verify executeCommit was called
+    expect(mockExecuteCommit).toHaveBeenCalledWith("thread-1", state);
 
     // Responds with formatted output
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
       expect.any(String),
     );
   });
 });
 
-describe("CommitCommand diff fetch failure", () => {
+describe("CommitCommand executeCommit failure", () => {
   let command: CommitCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new CommitCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
-  it("returns error when workspace.getDiff returns err", async () => {
-    deps.workspace.getDiff = vi
-      .fn()
-      .mockResolvedValue(err(new AppError("diff failed", "DIFF_ERROR")));
+  it("returns error when executeCommit returns err", async () => {
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecuteCommit.mockResolvedValue(
+      err(new AppError("diffの取得に失敗しました: diff failed", "DIFF_ERROR")),
+    );
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
-      "test-token",
+    expect(mockSetError).toHaveBeenCalledWith(
+      "thread-1",
+      state,
       "diffの取得に失敗しました: diff failed",
     );
 
-    // Should not proceed to codex execution
-    expect(deps.codexExec.startThread).not.toHaveBeenCalled();
-
-    // subStage should be reset to idle
-    expect(deps.redis.saveThreadState).toHaveBeenCalledWith(
-      "thread-1",
-      expect.objectContaining({ subStage: "idle" }),
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
+      "test-token",
+      "diffの取得に失敗しました: diff failed",
     );
   });
 });
 
 describe("CommitCommand codex failure", () => {
   let command: CommitCommand;
-  let deps: ReturnType<typeof createCommandDeps>;
+  let discordClient: DiscordClient;
 
   beforeEach(() => {
-    vi.restoreAllMocks();
-    deps = createCommandDeps();
-    command = new CommitCommand(deps);
+    vi.clearAllMocks();
+    ({ command, discordClient } = createCommand());
   });
 
   it("handles error when codex throws", async () => {
-    deps.codexExec.startThread = vi
-      .fn()
-      .mockRejectedValue(new Error("codex crashed"));
+    const state = createMockThreadState();
+    mockValidateThreadCommand.mockResolvedValue(ok({ state }));
+    mockExecuteCommit.mockRejectedValue(new Error("codex crashed"));
 
     await command.execute(createInteraction());
     await flushPromises();
 
-    expect(deps.discordClient.editInteractionResponse).toHaveBeenCalledWith(
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
       "test-token",
       "コミット中にエラーが発生しました。しばらくしてから再試行してください。",
     );
 
-    expect(deps.redis.saveThreadState).toHaveBeenCalledWith(
+    expect(mockSetError).toHaveBeenCalledWith(
       "thread-1",
-      expect.objectContaining({
-        subStage: "idle",
-        lastError: "codex crashed",
-      }),
+      state,
+      "codex crashed",
     );
   });
 });
