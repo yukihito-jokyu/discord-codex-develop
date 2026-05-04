@@ -19,7 +19,7 @@ vi.mock("@/shared/utils/logger", () => ({
   }),
 }));
 
-describe("GitHubClient getIssue mapping", () => {
+describe("GitHubClient getIssue mapping: IssueInfo result", () => {
   let client: GitHubClient;
 
   beforeEach(() => {
@@ -52,6 +52,15 @@ describe("GitHubClient getIssue mapping", () => {
       expect(result.value.labels).toEqual(["bug", "priority"]);
       expect(result.value.assignees).toEqual(["dev1"]);
     }
+  });
+});
+
+describe("GitHubClient getIssue mapping: body handling", () => {
+  let client: GitHubClient;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    client = new GitHubClient();
   });
 
   it("maps null body correctly", async () => {
@@ -98,6 +107,15 @@ describe("GitHubClient getIssue mapping", () => {
       expect(result.value.body).toBeNull();
     }
   });
+});
+
+describe("GitHubClient getIssue mapping: arguments", () => {
+  let client: GitHubClient;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    client = new GitHubClient();
+  });
 
   it("calls gh api with correct arguments", async () => {
     mockExecCommand.mockResolvedValue({
@@ -121,6 +139,15 @@ describe("GitHubClient getIssue mapping", () => {
       ["api", "repos/myOwner/myRepo/issues/42"],
       { timeout: 30_000 },
     );
+  });
+});
+
+describe("GitHubClient getIssue mapping: state values", () => {
+  let client: GitHubClient;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    client = new GitHubClient();
   });
 
   it("maps closed state correctly", async () => {
@@ -147,7 +174,7 @@ describe("GitHubClient getIssue mapping", () => {
   });
 });
 
-describe("GitHubClient getIssue errors", () => {
+describe("GitHubClient getIssue errors: NotFoundError", () => {
   let client: GitHubClient;
 
   beforeEach(() => {
@@ -166,6 +193,29 @@ describe("GitHubClient getIssue errors", () => {
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(NotFoundError);
     }
+  });
+
+  it("returns NotFoundError when stderr is plain text containing 'Not Found'", async () => {
+    const error = new Error("Command failed");
+    (error as unknown as { stderr: string }).stderr =
+      "error: Not Found in response";
+    mockExecCommand.mockRejectedValue(error);
+
+    const result = await client.getIssue("owner", "repo", 999);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(NotFoundError);
+    }
+  });
+});
+
+describe("GitHubClient getIssue errors: ExternalServiceError", () => {
+  let client: GitHubClient;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    client = new GitHubClient();
   });
 
   it("returns ExternalServiceError on other failures", async () => {
@@ -192,20 +242,6 @@ describe("GitHubClient getIssue errors", () => {
     }
   });
 
-  it("returns NotFoundError when stderr is plain text containing 'Not Found'", async () => {
-    const error = new Error("Command failed");
-    (error as unknown as { stderr: string }).stderr =
-      "error: Not Found in response";
-    mockExecCommand.mockRejectedValue(error);
-
-    const result = await client.getIssue("owner", "repo", 999);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBeInstanceOf(NotFoundError);
-    }
-  });
-
   it("returns ExternalServiceError when stderr JSON has different message", async () => {
     const error = new Error("Command failed");
     (error as unknown as { stderr: string }).stderr =
@@ -218,6 +254,15 @@ describe("GitHubClient getIssue errors", () => {
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(ExternalServiceError);
     }
+  });
+});
+
+describe("GitHubClient getIssue errors: ExternalServiceError edge cases", () => {
+  let client: GitHubClient;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    client = new GitHubClient();
   });
 
   it("returns ExternalServiceError when error has no stderr property", async () => {
@@ -245,7 +290,7 @@ describe("GitHubClient getIssue errors", () => {
   });
 });
 
-describe("GitHubClient createPullRequest success", () => {
+describe("GitHubClient createPullRequest success: result", () => {
   let client: GitHubClient;
 
   beforeEach(() => {
@@ -274,6 +319,15 @@ describe("GitHubClient createPullRequest success", () => {
       expect(result.value.url).toBe("https://github.com/owner/repo/pull/10");
       expect(result.value.number).toBe(10);
     }
+  });
+});
+
+describe("GitHubClient createPullRequest success: arguments", () => {
+  let client: GitHubClient;
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    client = new GitHubClient();
   });
 
   it("calls gh api with correct arguments", async () => {
