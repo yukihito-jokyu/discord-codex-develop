@@ -98,7 +98,7 @@ export class GitHubClient {
           "POST",
           "--field",
           `title=${options.title}`,
-          "--field",
+          "--raw-field",
           `body=${options.body}`,
           "--field",
           `head=${options.head}`,
