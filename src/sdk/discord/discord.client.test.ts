@@ -252,6 +252,145 @@ describe("DiscordClient createThreadFromMessage error", () => {
   });
 });
 
+describe("DiscordClient sendChannelMessage success", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns message ID on success", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: "msg-new" }),
+    });
+    const client = createClient();
+
+    const result = await client.sendChannelMessage("ch-123", "Hello!");
+
+    expect(result).toBe("msg-new");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/ch-123/messages",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bot test-token",
+        },
+        body: JSON.stringify({ content: "Hello!" }),
+      },
+    );
+  });
+
+  it("returns null when response has no id", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({}),
+    });
+    const client = createClient();
+
+    const result = await client.sendChannelMessage("ch-123", "Hello!");
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("DiscordClient sendChannelMessage error", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns null on API error", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: () => Promise.resolve("Forbidden"),
+    });
+    const client = createClient();
+
+    const result = await client.sendChannelMessage("ch-123", "Hello!");
+
+    expect(result).toBeNull();
+    expect(mockLogError).toHaveBeenCalledWith(
+      { status: 403, body: "Forbidden", channelId: "ch-123" },
+      "Failed to send channel message",
+    );
+  });
+
+  it("returns null on network error", async () => {
+    mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    const client = createClient();
+
+    const result = await client.sendChannelMessage("ch-123", "Hello!");
+
+    expect(result).toBeNull();
+    expect(mockLogError).toHaveBeenCalledWith(
+      { err: "ECONNREFUSED", channelId: "ch-123" },
+      "Channel message request failed",
+    );
+  });
+});
+
+describe("DiscordClient archiveThread success", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns true on success", async () => {
+    mockFetch.mockResolvedValue({ ok: true });
+    const client = createClient();
+
+    const result = await client.archiveThread("thread-123");
+
+    expect(result).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "https://discord.com/api/v10/channels/thread-123",
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bot test-token",
+        },
+        body: JSON.stringify({ archived: true }),
+      },
+    );
+  });
+});
+
+describe("DiscordClient archiveThread error", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns false on API error", async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: () => Promise.resolve("Forbidden"),
+    });
+    const client = createClient();
+
+    const result = await client.archiveThread("thread-123");
+
+    expect(result).toBe(false);
+    expect(mockLogError).toHaveBeenCalledWith(
+      { status: 403, body: "Forbidden", threadId: "thread-123" },
+      "Failed to archive thread",
+    );
+  });
+
+  it("returns false on network error", async () => {
+    mockFetch.mockRejectedValue(new Error("ECONNREFUSED"));
+    const client = createClient();
+
+    const result = await client.archiveThread("thread-123");
+
+    expect(result).toBe(false);
+    expect(mockLogError).toHaveBeenCalledWith(
+      { err: "ECONNREFUSED", threadId: "thread-123" },
+      "Thread archive request failed",
+    );
+  });
+});
+
 const testCommands = [
   {
     name: "ping",

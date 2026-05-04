@@ -165,6 +165,66 @@ export class DiscordClient {
     }
   }
 
+  async sendChannelMessage(
+    channelId: string,
+    content: string,
+  ): Promise<string | null> {
+    const log = getLogger();
+    try {
+      const response = await this.discordApiFetch(
+        `/channels/${channelId}/messages`,
+        "POST",
+        { content },
+      );
+
+      if (!response.ok) {
+        const body = await response.text();
+        log.error(
+          { status: response.status, body, channelId },
+          "Failed to send channel message",
+        );
+        return null;
+      }
+
+      const data = (await response.json()) as { id?: string };
+      return data.id ?? null;
+    } catch (e) {
+      log.error(
+        { err: e instanceof Error ? e.message : String(e), channelId },
+        "Channel message request failed",
+      );
+      return null;
+    }
+  }
+
+  async archiveThread(threadId: string): Promise<boolean> {
+    const log = getLogger();
+    try {
+      const response = await this.discordApiFetch(
+        `/channels/${threadId}`,
+        "PATCH",
+        { archived: true },
+      );
+
+      if (!response.ok) {
+        const body = await response.text();
+        log.error(
+          { status: response.status, body, threadId },
+          "Failed to archive thread",
+        );
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      log.error(
+        { err: e instanceof Error ? e.message : String(e), threadId },
+        "Thread archive request failed",
+      );
+      return false;
+    }
+  }
+
   async registerGuildCommands(
     guildId: string,
     commands: Command[],
