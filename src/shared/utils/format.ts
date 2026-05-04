@@ -1,9 +1,10 @@
 import { DISCORD_MAX_LENGTH } from "./constants";
+import { truncateToBytes } from "./truncate";
 
 // biome-ignore lint/security/noSecrets: static Japanese notice text, not a secret
-const OMISSION_NOTICE = "\n\n... (続きは省略されました)";
+const DISCORD_OMISSION_NOTICE = "\n\n... (続きは省略されました)";
 
 export function formatForDiscord(text: string): string {
-  if (text.length <= DISCORD_MAX_LENGTH) return text;
-  return `${text.slice(0, DISCORD_MAX_LENGTH - OMISSION_NOTICE.length)}${OMISSION_NOTICE}`;
+  return truncateToBytes(text, DISCORD_MAX_LENGTH, DISCORD_OMISSION_NOTICE)
+    .text;
 }

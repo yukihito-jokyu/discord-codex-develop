@@ -3,39 +3,56 @@ import { DISCORD_MAX_LENGTH } from "@/shared/utils/constants";
 import { formatForDiscord } from "@/shared/utils/format";
 
 describe("formatForDiscord", () => {
-  it("returns empty string as-is", () => {
+  it(// biome-ignore lint/security/noSecrets: test description, not a secret
+  "空文字列はそのまま返る", () => {
     expect(formatForDiscord("")).toBe("");
   });
 
-  it("returns text as-is when within limit", () => {
+  it(// biome-ignore lint/security/noSecrets: test description, not a secret
+  "制限内のテキストはそのまま返る", () => {
     const text = "short message";
     expect(formatForDiscord(text)).toBe(text);
   });
 
-  it("returns text as-is when exactly at limit", () => {
+  it(// biome-ignore lint/security/noSecrets: test description, not a secret
+  "ちょうど制限バイトのテキストはそのまま返る", () => {
     const text = "a".repeat(DISCORD_MAX_LENGTH);
     expect(formatForDiscord(text)).toBe(text);
   });
+});
 
-  it("truncates and appends omission notice when over limit", () => {
+describe("formatForDiscord: 切り詰め", () => {
+  it(// biome-ignore lint/security/noSecrets: test description, not a secret
+  "制限超過時は切り詰めて省略通知を付与する", () => {
     const text = "a".repeat(DISCORD_MAX_LENGTH + 100);
     const result = formatForDiscord(text);
     // biome-ignore lint/security/noSecrets: static Japanese notice text, not a secret
     expect(result).toContain("... (続きは省略されました)");
-    expect(result.length).toBeLessThanOrEqual(DISCORD_MAX_LENGTH);
+    expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(
+      DISCORD_MAX_LENGTH,
+    );
   });
 
-  it("preserves first DISCORD_MAX_LENGTH - 50 characters", () => {
-    const prefix = "b".repeat(DISCORD_MAX_LENGTH - 50);
-    const text = prefix + "x".repeat(100);
+  it(// biome-ignore lint/security/noSecrets: test description, not a secret
+  "日本語テキストが制限超過時にバイトベースで切り詰められる", () => {
+    // 日本語1文字 = UTF-8で3バイト
+    // 2000 / 3 ≈ 666文字 + 通知文で制限超過
+    const text = "あ".repeat(700);
     const result = formatForDiscord(text);
-    expect(result.startsWith(prefix)).toBe(true);
+    // biome-ignore lint/security/noSecrets: static Japanese notice text, not a secret
+    expect(result).toContain("... (続きは省略されました)");
+    expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(
+      DISCORD_MAX_LENGTH,
+    );
   });
 
-  it("truncates text that is exactly one character over limit", () => {
+  it(// biome-ignore lint/security/noSecrets: test description, not a secret
+  "1バイトだけ制限を超えるテキストを切り詰める", () => {
     const text = "a".repeat(DISCORD_MAX_LENGTH + 1);
     const result = formatForDiscord(text);
-    expect(result.length).toBeLessThanOrEqual(DISCORD_MAX_LENGTH);
+    expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(
+      DISCORD_MAX_LENGTH,
+    );
     // biome-ignore lint/security/noSecrets: static Japanese notice text, not a secret
     expect(result).toContain("... (続きは省略されました)");
   });
