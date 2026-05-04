@@ -89,7 +89,6 @@ tasks:
     desc: Stop Redis
     cmds:
       - kill "$(cat run/redis.pid)" 2>/dev/null || true
-      - pkill -f 'redis-server' 2>/dev/null || true
       - rm -f run/redis.pid
 
   tunnel:start:
@@ -101,7 +100,6 @@ tasks:
     desc: Stop Cloudflared tunnel
     cmds:
       - kill "$(cat run/cloudflared.pid)" 2>/dev/null || true
-      - pkill -f 'cloudflared' 2>/dev/null || true
       - rm -f run/cloudflared.pid
 
   services:up:
