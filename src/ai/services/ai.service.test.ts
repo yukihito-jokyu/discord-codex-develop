@@ -37,7 +37,7 @@ async function createService() {
   const { RedisClient } = await import("@/infrastructure/redis/redis.client");
   return new AIService(
     new (OpenAIClient as ReturnType<typeof vi.fn>)(),
-    new (RedisClient as ReturnType<typeof vi.fn>)(),
+    new (RedisClient as unknown as ReturnType<typeof vi.fn>)(),
   );
 }
 
