@@ -521,7 +521,7 @@ describe("RedisClient setEx TTL boundary", () => {
 
 // --- ThreadState tests ---
 
-describe("RedisClient saveThreadState / getThreadState (Redis)", () => {
+describe("RedisClient saveThreadState (Redis)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupConnectedClient();
@@ -544,6 +544,35 @@ describe("RedisClient saveThreadState / getThreadState (Redis)", () => {
     await client.connect();
     await client.saveThreadState("thread-1", sampleThreadState());
     expect(mockHSet).toHaveBeenCalledWith("codex:develop:thread-1", {
+      initiatedBy: "user-123",
+      issueNumber: "12",
+      repo: "owner/repo",
+      branch: "feature/12",
+      workspacePath: "/tmp/workspace",
+      currentPhase: "init",
+      subStage: "idle",
+      lastError: "",
+      planOutput: "",
+    });
+  });
+
+  it("sets TTL after hSet", async () => {
+    mockExpire.mockResolvedValue(true);
+    const client = await createClient();
+    await client.connect();
+    await client.saveThreadState("thread-1", sampleThreadState());
+    expect(mockExpire).toHaveBeenCalledWith(
+      "codex:develop:thread-1",
+      24 * 60 * 60,
+    );
+  });
+});
+
+describe("RedisClient getThreadState (Redis)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupConnectedClient();
+    mockHGetAll.mockResolvedValue({
       initiatedBy: "user-123",
       issueNumber: "12",
       repo: "owner/repo",
@@ -864,7 +893,7 @@ describe("RedisClient setThreadTTL (fallback)", () => {
   });
 });
 
-describe("RedisClient planOutput 10KB truncation", () => {
+describe("RedisClient planOutput truncation: exceeds 10KB", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -899,6 +928,12 @@ describe("RedisClient planOutput 10KB truncation", () => {
       "planOutput exceeds 10KB, truncating",
     );
   });
+});
+
+describe("RedisClient planOutput truncation: within 10KB", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it("does not truncate planOutput within 10KB", async () => {
     const within = "a".repeat(10_240);
@@ -914,6 +949,12 @@ describe("RedisClient planOutput 10KB truncation", () => {
       "planOutput exceeds 10KB, truncating",
     );
   });
+});
+
+describe("RedisClient planOutput truncation: boundary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it("truncates planOutput at exactly 10241 bytes", async () => {
     const atBoundary = "a".repeat(10_241);
@@ -921,6 +962,21 @@ describe("RedisClient planOutput 10KB truncation", () => {
     await client.saveThreadState(
       "thread-1",
       sampleThreadState({ planOutput: atBoundary }),
+    );
+    const state = await client.getThreadState("thread-1");
+    expect(state).not.toBeNull();
+    expect(state?.planOutput).not.toBeNull();
+    expect(
+      Buffer.byteLength(state?.planOutput ?? "", "utf-8"),
+    ).toBeLessThanOrEqual(10_240);
+  });
+
+  it("handles multi-byte characters correctly when truncating", async () => {
+    const multiByte = "あ".repeat(5000);
+    const client = await createClient();
+    await client.saveThreadState(
+      "thread-1",
+      sampleThreadState({ planOutput: multiByte }),
     );
     const state = await client.getThreadState("thread-1");
     expect(state).not.toBeNull();
