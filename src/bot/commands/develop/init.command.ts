@@ -81,12 +81,22 @@ export class InitCommand implements Command {
       return;
     }
 
-    await this.setupAndInitialize(
-      channelId,
-      userId,
-      issueNumber,
-      interactionToken,
-    );
+    try {
+      await this.setupAndInitialize(
+        channelId,
+        userId,
+        issueNumber,
+        interactionToken,
+      );
+    } catch (err) {
+      const log = getLogger();
+      log.error({ err: String(err) }, "InitCommand error");
+      await this.discordClient.editInteractionResponse(
+        interactionToken,
+        // biome-ignore lint/security/noSecrets: Japanese UI text, not a secret
+        "初期化中にエラーが発生しました。しばらくしてから再試行してください。",
+      );
+    }
   }
 
   private async setupAndInitialize(

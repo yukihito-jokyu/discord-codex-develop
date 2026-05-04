@@ -292,6 +292,36 @@ describe("InitCommand error handling", () => {
       "ワークスペースの準備に失敗しました: clone failed",
     );
   });
+
+  it("handles unexpected error during setupAndInitialize", async () => {
+    mockValidateInit.mockResolvedValue(ok(null));
+    mockFetchIssue.mockResolvedValue(
+      ok({
+        number: 15,
+        title: "Test Issue",
+        body: "body",
+        owner: "owner",
+        repo: "repo",
+        state: "open" as const,
+        labels: [],
+        assignees: [],
+        createdAt: "2025-01-01T00:00:00Z",
+        updatedAt: "2025-01-01T00:00:00Z",
+      }),
+    );
+    mockSetupWorkspace.mockResolvedValue(
+      ok({ branchName: "feature/15", targetDir: "test-repo-15" }),
+    );
+    mockInitializeState.mockRejectedValue(new Error("redis down"));
+
+    await command.execute(createInteraction());
+    await flushPromises();
+
+    expect(discordClient.editInteractionResponse).toHaveBeenCalledWith(
+      "test-token",
+      "初期化中にエラーが発生しました。しばらくしてから再試行してください。",
+    );
+  });
 });
 
 describe("InitCommand success flow", () => {
