@@ -20,3 +20,7 @@ github:
 
 workspace:
   root: "/tmp/codex-workspace"
+
+develop:
+  codexModel: "codex-mini"
+  timeoutMs: 600000
