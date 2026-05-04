@@ -46,6 +46,7 @@ describe("botConfigSchema valid", () => {
       server: { port: 3000 },
       github,
       workspace,
+      develop: { codexModel: "codex-mini", timeoutMs: 600000 },
     });
   });
 
@@ -399,6 +400,7 @@ describe("loadConfig", () => {
       github,
       workspace,
       redis: { url: "redis://localhost:6379" },
+      develop: { codexModel: "codex-mini", timeoutMs: 600000 },
     });
   });
 
@@ -432,5 +434,85 @@ describe("loadConfig", () => {
     const { loadConfig } = await import("@/app/config/bot.config");
 
     expect(() => loadConfig("nonexistent.yaml")).toThrow("ENOENT");
+  });
+});
+
+describe("botConfigSchema develop valid", () => {
+  it("accepts config without develop section", () => {
+    const result = botConfigSchema.parse({
+      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
+      server: { port: 3000 },
+      github,
+      workspace,
+    });
+
+    expect(result.develop).toEqual({
+      codexModel: "codex-mini",
+      timeoutMs: 600000,
+    });
+  });
+
+  it("accepts develop with custom values", () => {
+    const result = botConfigSchema.parse({
+      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
+      server: { port: 3000 },
+      github,
+      workspace,
+      develop: { codexModel: "gpt-4", timeoutMs: 300000 },
+    });
+
+    expect(result.develop).toEqual({
+      codexModel: "gpt-4",
+      timeoutMs: 300000,
+    });
+  });
+
+  it("applies defaults for partial develop config", () => {
+    const result = botConfigSchema.parse({
+      bot: { defaultModel: "codex-mini", maxTokens: 4096, timeoutMs: 30000 },
+      server: { port: 3000 },
+      github,
+      workspace,
+      develop: { codexModel: "custom-model" },
+    });
+
+    expect(result.develop).toEqual({
+      codexModel: "custom-model",
+      timeoutMs: 600000,
+    });
+  });
+});
+
+describe("botConfigSchema develop invalid", () => {
+  it("rejects empty string for codexModel", () => {
+    expect(() =>
+      botConfigSchema.parse({
+        bot: {
+          defaultModel: "codex-mini",
+          maxTokens: 4096,
+          timeoutMs: 30000,
+        },
+        server: { port: 3000 },
+        github,
+        workspace,
+        develop: { codexModel: "" },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects negative timeoutMs", () => {
+    expect(() =>
+      botConfigSchema.parse({
+        bot: {
+          defaultModel: "codex-mini",
+          maxTokens: 4096,
+          timeoutMs: 30000,
+        },
+        server: { port: 3000 },
+        github,
+        workspace,
+        develop: { codexModel: "codex-mini", timeoutMs: -1 },
+      }),
+    ).toThrow();
   });
 });
