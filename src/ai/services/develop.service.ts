@@ -63,10 +63,27 @@ export class DevelopService {
       const log = getLogger();
       log.warn(
         { channelId, expected: from, target: to },
-        "CAS failed, force-updating phase",
+        "CAS failed, phase was not updated",
       );
     }
     return success;
+  }
+
+  private async requirePhaseTransition(
+    channelId: string,
+    from: Phase,
+    to: Phase,
+  ): Promise<Result<void>> {
+    const transitioned = await this.transitionPhase(channelId, from, to);
+    if (!transitioned) {
+      return err(
+        new ValidationError(
+          // biome-ignore lint/security/noSecrets: Japanese UI text, not a secret
+          "フェーズ遷移に失敗しました（同時操作が発生しました）。再試行してください。",
+        ),
+      );
+    }
+    return ok(undefined);
   }
 
   async validateThreadCommand(options: {
@@ -237,7 +254,12 @@ export class DevelopService {
 
     state.planOutput = codexResult.response;
     state.subStage = "idle";
-    await this.transitionPhase(channelId, state.currentPhase, "planned");
+    const planResult = await this.requirePhaseTransition(
+      channelId,
+      state.currentPhase,
+      "planned",
+    );
+    if (!planResult.ok) return err(planResult.error);
     state.currentPhase = "planned";
     await this.deps.redis.saveThreadState(channelId, state);
 
@@ -272,7 +294,12 @@ export class DevelopService {
     const diffText = diffResult.ok ? diffResult.value : "";
 
     state.subStage = "idle";
-    await this.transitionPhase(channelId, "planned", "developed");
+    const devResult = await this.requirePhaseTransition(
+      channelId,
+      "planned",
+      "developed",
+    );
+    if (!devResult.ok) return err(devResult.error);
     state.currentPhase = "developed";
     await this.deps.redis.saveThreadState(channelId, state);
 
@@ -312,7 +339,12 @@ export class DevelopService {
     const postDiffText = postDiffResult.ok ? postDiffResult.value : "";
 
     state.subStage = "idle";
-    await this.transitionPhase(channelId, "developed", "tested");
+    const testResult = await this.requirePhaseTransition(
+      channelId,
+      "developed",
+      "tested",
+    );
+    if (!testResult.ok) return err(testResult.error);
     state.currentPhase = "tested";
     await this.deps.redis.saveThreadState(channelId, state);
 
@@ -358,7 +390,12 @@ export class DevelopService {
     });
 
     state.subStage = "idle";
-    await this.transitionPhase(channelId, "tested", "committed");
+    const commitResult = await this.requirePhaseTransition(
+      channelId,
+      "tested",
+      "committed",
+    );
+    if (!commitResult.ok) return err(commitResult.error);
     state.currentPhase = "committed";
     await this.deps.redis.saveThreadState(channelId, state);
 
@@ -412,7 +449,12 @@ export class DevelopService {
     }
 
     state.subStage = "idle";
-    await this.transitionPhase(channelId, "committed", "completed");
+    const prPhaseResult = await this.requirePhaseTransition(
+      channelId,
+      "committed",
+      "completed",
+    );
+    if (!prPhaseResult.ok) return err(prPhaseResult.error);
     state.currentPhase = "completed";
     await this.deps.redis.saveThreadState(channelId, state);
 

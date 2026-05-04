@@ -25,37 +25,49 @@ const mockBuildTestPrompt = vi.fn();
 const mockBuildCommitPrompt = vi.fn();
 
 vi.mock("@/infrastructure/redis/redis.client", () => ({
-  RedisClient: vi.fn().mockImplementation(() => ({
-    getThreadState: mockGetThreadState,
-    saveThreadState: mockSaveThreadState,
-    compareAndSwapPhase: mockCompareAndSwapPhase,
-    getCodexThread: mockGetCodexThread,
-    saveCodexThread: mockSaveCodexThread,
-  })),
+  // biome-ignore lint/complexity/useArrowFunction: needed for `new` constructor call
+  RedisClient: vi.fn().mockImplementation(function () {
+    return {
+      getThreadState: mockGetThreadState,
+      saveThreadState: mockSaveThreadState,
+      compareAndSwapPhase: mockCompareAndSwapPhase,
+      getCodexThread: mockGetCodexThread,
+      saveCodexThread: mockSaveCodexThread,
+    };
+  }),
 }));
 
 vi.mock("@/ai/client/codex-exec.client", () => ({
-  CodexExecClient: vi.fn().mockImplementation(() => ({
-    startThread: mockStartThread,
-    resumeThread: mockResumeThread,
-  })),
+  // biome-ignore lint/complexity/useArrowFunction: needed for `new` constructor call
+  CodexExecClient: vi.fn().mockImplementation(function () {
+    return {
+      startThread: mockStartThread,
+      resumeThread: mockResumeThread,
+    };
+  }),
 }));
 
 vi.mock("@/infrastructure/github/github.client", () => ({
-  GitHubClient: vi.fn().mockImplementation(() => ({
-    getIssue: mockGetIssue,
-    createPullRequest: mockCreatePullRequest,
-  })),
+  // biome-ignore lint/complexity/useArrowFunction: needed for `new` constructor call
+  GitHubClient: vi.fn().mockImplementation(function () {
+    return {
+      getIssue: mockGetIssue,
+      createPullRequest: mockCreatePullRequest,
+    };
+  }),
 }));
 
 vi.mock("@/infrastructure/workspace/workspace.manager", () => ({
-  WorkspaceManager: vi.fn().mockImplementation(() => ({
-    ensureClone: mockEnsureClone,
-    syncMain: mockSyncMain,
-    createBranch: mockCreateBranch,
-    getDiff: mockGetDiff,
-    discardChanges: mockDiscardChanges,
-  })),
+  // biome-ignore lint/complexity/useArrowFunction: needed for `new` constructor call
+  WorkspaceManager: vi.fn().mockImplementation(function () {
+    return {
+      ensureClone: mockEnsureClone,
+      syncMain: mockSyncMain,
+      createBranch: mockCreateBranch,
+      getDiff: mockGetDiff,
+      discardChanges: mockDiscardChanges,
+    };
+  }),
 }));
 
 vi.mock("@/ai/prompts/templates/develop-plan", () => ({
@@ -475,6 +487,29 @@ describe("DevelopService executePlan", () => {
     );
   });
 
+  it("returns error when CAS fails", async () => {
+    mockCompareAndSwapPhase.mockResolvedValue(false);
+    mockGetIssue.mockResolvedValue({
+      ok: true,
+      value: { number: 42, title: "Bug", body: "desc" },
+    });
+    mockBuildPlanPrompt.mockReturnValue("plan prompt");
+    mockStartThread.mockResolvedValue({
+      response: "plan output",
+      threadId: "thread-1",
+      usage: null,
+    });
+    const state = makeState({ currentPhase: "init" });
+    const service = await createService();
+    const result = await service.executePlan("ch-1", state);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("フェーズ遷移に失敗");
+    }
+    expect(state.currentPhase).toBe("init");
+  });
+
   it("resumes existing codex thread", async () => {
     mockGetIssue.mockResolvedValue({
       ok: true,
@@ -523,6 +558,26 @@ describe("DevelopService executeDevelop", () => {
     );
   });
 
+  it("returns error when CAS fails", async () => {
+    mockCompareAndSwapPhase.mockResolvedValue(false);
+    mockBuildImplPrompt.mockReturnValue("impl prompt");
+    mockStartThread.mockResolvedValue({
+      response: "impl output",
+      threadId: "thread-2",
+      usage: null,
+    });
+    mockGetDiff.mockResolvedValue({ ok: true, value: "diff content" });
+    const state = makeState({ currentPhase: "planned", planOutput: "plan" });
+    const service = await createService();
+    const result = await service.executeDevelop("ch-1", state);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("フェーズ遷移に失敗");
+    }
+    expect(state.currentPhase).toBe("planned");
+  });
+
   it("returns empty diff on getDiff failure", async () => {
     mockBuildImplPrompt.mockReturnValue("impl prompt");
     mockStartThread.mockResolvedValue({
@@ -557,6 +612,27 @@ describe("DevelopService executeTest", () => {
     expect(result.ok).toBe(false);
   });
 
+  it("returns error when CAS fails", async () => {
+    mockCompareAndSwapPhase.mockResolvedValue(false);
+    mockGetDiff.mockResolvedValueOnce({ ok: true, value: "pre-diff" });
+    mockBuildTestPrompt.mockReturnValue("test prompt");
+    mockStartThread.mockResolvedValue({
+      response: "test output",
+      threadId: "thread-3",
+      usage: null,
+    });
+    mockGetDiff.mockResolvedValueOnce({ ok: true, value: "post-diff" });
+    const state = makeState({ currentPhase: "developed" });
+    const service = await createService();
+    const result = await service.executeTest("ch-1", state);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("フェーズ遷移に失敗");
+    }
+    expect(state.currentPhase).toBe("developed");
+  });
+
   it("executes test and returns post-diff", async () => {
     mockGetDiff.mockResolvedValueOnce({ ok: true, value: "pre-diff" });
     mockBuildTestPrompt.mockReturnValue("test prompt");
@@ -589,6 +665,30 @@ describe("DevelopService executeCommit", () => {
     const service = await createService();
     const result = await service.executeCommit("ch-1", state);
     expect(result.ok).toBe(false);
+  });
+
+  it("returns error when CAS fails", async () => {
+    mockCompareAndSwapPhase.mockResolvedValue(false);
+    mockGetDiff.mockResolvedValue({ ok: true, value: "some diff" });
+    mockGetIssue.mockResolvedValue({
+      ok: false,
+      error: new Error("not found"),
+    });
+    mockBuildCommitPrompt.mockReturnValue("commit prompt");
+    mockStartThread.mockResolvedValue({
+      response: "commit output",
+      threadId: "thread-4",
+      usage: null,
+    });
+    const state = makeState({ currentPhase: "tested" });
+    const service = await createService();
+    const result = await service.executeCommit("ch-1", state);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("フェーズ遷移に失敗");
+    }
+    expect(state.currentPhase).toBe("tested");
   });
 
   it("executes commit with issue title fallback", async () => {
@@ -659,6 +759,32 @@ describe("DevelopService executePr", () => {
     const service = await createService();
     const result = await service.executePr("ch-1", state);
     expect(result.ok).toBe(false);
+  });
+
+  it("returns error when CAS fails", async () => {
+    mockCompareAndSwapPhase.mockResolvedValue(false);
+    mockStartThread.mockResolvedValue({
+      response: "pushed",
+      threadId: "thread-5",
+      usage: null,
+    });
+    mockGetIssue.mockResolvedValue({
+      ok: true,
+      value: { number: 42, title: "Bug", body: "desc" },
+    });
+    mockCreatePullRequest.mockResolvedValue({
+      ok: true,
+      value: { url: "https://github.com/owner/repo/pull/1", number: 1 },
+    });
+    const state = makeState({ currentPhase: "committed" });
+    const service = await createService();
+    const result = await service.executePr("ch-1", state);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("フェーズ遷移に失敗");
+    }
+    expect(state.currentPhase).toBe("committed");
   });
 
   it("pushes branch and creates PR", async () => {
