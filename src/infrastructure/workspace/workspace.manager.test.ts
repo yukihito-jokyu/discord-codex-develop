@@ -26,7 +26,7 @@ vi.mock("@/shared/utils/logger", () => ({
 
 const WORKSPACE_ROOT = "/workspace";
 
-describe("WorkspaceManager ensureClone", () => {
+describe("WorkspaceManager ensureClone: success", () => {
   let manager: WorkspaceManager;
 
   beforeEach(() => {
@@ -62,6 +62,15 @@ describe("WorkspaceManager ensureClone", () => {
     expect(result.ok).toBe(true);
     expect(mockExecCommand).not.toHaveBeenCalled();
   });
+});
+
+describe("WorkspaceManager ensureClone: errors", () => {
+  let manager: WorkspaceManager;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    manager = new WorkspaceManager(WORKSPACE_ROOT);
+  });
 
   it("returns ExternalServiceError on clone failure", async () => {
     mockExistsSync.mockReturnValue(false);
@@ -96,7 +105,7 @@ describe("WorkspaceManager ensureClone", () => {
   });
 });
 
-describe("WorkspaceManager syncMain", () => {
+describe("WorkspaceManager syncMain: success", () => {
   let manager: WorkspaceManager;
 
   beforeEach(() => {
@@ -119,6 +128,15 @@ describe("WorkspaceManager syncMain", () => {
       cwd: "/workspace/repos/repo",
       timeout: 60_000,
     });
+  });
+});
+
+describe("WorkspaceManager syncMain: errors", () => {
+  let manager: WorkspaceManager;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    manager = new WorkspaceManager(WORKSPACE_ROOT);
   });
 
   it("returns ExternalServiceError on checkout failure", async () => {
