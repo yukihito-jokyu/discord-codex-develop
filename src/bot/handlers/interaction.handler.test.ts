@@ -115,7 +115,6 @@ describe("InteractionHandler command not found", () => {
     );
 
     expect(response.type).toBe(4);
-    // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
     expect(response.data?.content).toBe("不明なコマンドです");
     expect(response.data?.flags).toBe(MessageFlags.Ephemeral);
   });
@@ -125,7 +124,6 @@ describe("InteractionHandler command not found", () => {
       createInteraction({ commandName: undefined }),
     );
 
-    // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
     expect(response.data?.content).toBe("不明なコマンドです");
   });
 });
@@ -145,7 +143,6 @@ describe("InteractionHandler command execution error", () => {
 
     expect(response.type).toBe(4);
     expect(response.data?.content).toBe(
-      // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
       "エラーが発生しました。しばらくしてからお試しください。",
     );
     expect(response.data?.flags).toBe(MessageFlags.Ephemeral);

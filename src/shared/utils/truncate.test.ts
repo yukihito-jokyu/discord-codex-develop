@@ -2,15 +2,13 @@ import { describe, expect, it } from "vitest";
 import { truncateToBytes } from "./truncate";
 
 describe("truncateToBytes", () => {
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "制限内のテキストはそのまま返る", () => {
+  it("制限内のテキストはそのまま返る", () => {
     const result = truncateToBytes("hello", 100);
     expect(result.text).toBe("hello");
     expect(result.wasTruncated).toBe(false);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "制限超過テキストは切り詰められる", () => {
+  it("制限超過テキストは切り詰められる", () => {
     const text = "a".repeat(1000);
     const result = truncateToBytes(text, 100);
     expect(result.wasTruncated).toBe(true);
@@ -18,8 +16,7 @@ describe("truncateToBytes", () => {
     expect(Buffer.byteLength(result.text, "utf-8")).toBeLessThanOrEqual(100);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "境界値: ちょうど制限のテキストは切り詰められない", () => {
+  it("境界値: ちょうど制限のテキストは切り詰められない", () => {
     const text = "あいうえお";
     const exactBytes = Buffer.byteLength(text, "utf-8");
     const result = truncateToBytes(text, exactBytes);
@@ -27,15 +24,13 @@ describe("truncateToBytes", () => {
     expect(result.wasTruncated).toBe(false);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "空文字列入力を処理する", () => {
+  it("空文字列入力を処理する", () => {
     const result = truncateToBytes("", 100);
     expect(result.text).toBe("");
     expect(result.wasTruncated).toBe(false);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "マルチバイト文字が途中で分割されない", () => {
+  it("マルチバイト文字が途中で分割されない", () => {
     const text = "あいうえおかきくけこ";
     const result = truncateToBytes(text, 20);
     expect(result.wasTruncated).toBe(true);
@@ -46,16 +41,12 @@ describe("truncateToBytes", () => {
   });
 });
 
-// biome-ignore lint/security/noSecrets: describe block name, not a secret
 describe("truncateToBytes: カスタム通知文", () => {
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "カスタム通知文を使用できる", () => {
+  it("カスタム通知文を使用できる", () => {
     const text = "a".repeat(1000);
-    // biome-ignore lint/security/noSecrets: static Japanese notice text, not a secret
     const notice = "\n\n... (続きは省略されました)";
     const result = truncateToBytes(text, 100, notice);
     expect(result.wasTruncated).toBe(true);
-    // biome-ignore lint/security/noSecrets: static Japanese notice text, not a secret
     expect(result.text).toContain("続きは省略されました)");
     expect(result.text).not.toContain("... (truncated)");
     expect(Buffer.byteLength(result.text, "utf-8")).toBeLessThanOrEqual(100);
@@ -63,8 +54,7 @@ describe("truncateToBytes: カスタム通知文", () => {
 });
 
 describe("truncateToBytes: 境界値", () => {
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "1バイトだけ制限を超えるテキストを切り詰める", () => {
+  it("1バイトだけ制限を超えるテキストを切り詰める", () => {
     const text = "a".repeat(101);
     const result = truncateToBytes(text, 100);
     expect(result.wasTruncated).toBe(true);
@@ -72,8 +62,7 @@ describe("truncateToBytes: 境界値", () => {
     expect(result.text).toContain("... (truncated)");
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "maxBytesが通知文のバイト長と等しい場合、本文は空になる", () => {
+  it("maxBytesが通知文のバイト長と等しい場合、本文は空になる", () => {
     const notice = "\n\n... (truncated)";
     const noticeBytes = Buffer.byteLength(notice, "utf-8");
     const text = "a".repeat(noticeBytes + 10);
@@ -83,8 +72,7 @@ describe("truncateToBytes: 境界値", () => {
     expect(Buffer.byteLength(result.text, "utf-8")).toBe(noticeBytes);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "通知文のバイト長がmaxBytesを超える場合、通知文をmaxBytesに切り詰める", () => {
+  it("通知文のバイト長がmaxBytesを超える場合、通知文をmaxBytesに切り詰める", () => {
     const text = "a".repeat(200);
     const longNotice = "X".repeat(200);
     const result = truncateToBytes(text, 100, longNotice);
@@ -92,8 +80,7 @@ describe("truncateToBytes: 境界値", () => {
     expect(Buffer.byteLength(result.text, "utf-8")).toBeLessThanOrEqual(100);
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "ASCIIとマルチバイト混在テキストの切り詰め境界で文字が分割されない", () => {
+  it("ASCIIとマルチバイト混在テキストの切り詰め境界で文字が分割されない", () => {
     const text = "aあaあaあaあaあ";
     const shortNotice = "…";
     const result = truncateToBytes(text, 10, shortNotice);
@@ -105,8 +92,7 @@ describe("truncateToBytes: 境界値", () => {
     }
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "maxBytesが0の場合、結果は空文字列になる", () => {
+  it("maxBytesが0の場合、結果は空文字列になる", () => {
     const text = "hello";
     const result = truncateToBytes(text, 0);
     expect(result.wasTruncated).toBe(true);

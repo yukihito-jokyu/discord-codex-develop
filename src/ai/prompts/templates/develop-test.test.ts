@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDevelopTestPrompt } from "./develop-test";
 
 describe("buildDevelopTestPrompt", () => {
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "コンテキスト変数がプロンプトに含まれる", () => {
+  it("コンテキスト変数がプロンプトに含まれる", () => {
     const result = buildDevelopTestPrompt({
       diff: "+ function add(a, b) { return a + b; }",
       repo: "owner/repo",
@@ -14,8 +13,7 @@ describe("buildDevelopTestPrompt", () => {
     expect(result).toContain("feature/1");
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "テスト規約が含まれる", () => {
+  it("テスト規約が含まれる", () => {
     const result = buildDevelopTestPrompt({
       diff: "test diff",
       repo: "owner/repo",
@@ -27,14 +25,12 @@ describe("buildDevelopTestPrompt", () => {
     expect(result).toContain("vi.mock()");
   });
 
-  it(// biome-ignore lint/security/noSecrets: test description, not a secret
-  "空の diff を処理する", () => {
+  it("空の diff を処理する", () => {
     const result = buildDevelopTestPrompt({
       diff: "",
       repo: "owner/repo",
       branch: "main",
     });
-    // biome-ignore lint/security/noSecrets: Japanese test assertion, not a secret
     expect(result).toContain("テストを作成してください");
     expect(result).toContain("Vitest");
   });
